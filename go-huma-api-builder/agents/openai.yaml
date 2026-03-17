@@ -1,0 +1,6 @@
+interface:
+  display_name: "Huma API Builder"
+  short_description: "Build production-ready REST APIs with HUMA v2 framework using Go 1.22+ standard library router."
+  icon_small: "./assets/huma.png"
+  icon_large: "./assets/huma.png"
+  default_prompt: "Help build a production level API in this project with huma using the latest Go coding standards."
