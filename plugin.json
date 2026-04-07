@@ -1,0 +1,47 @@
+{
+  "name": "go-dev-toolkit",
+  "version": "1.0.0",
+  "description": "Reusable Go development toolkit bundling core skills for coding, modernization, testing, TUIs, HUMA APIs, and MCP servers.",
+  "author": {
+    "name": "Sam Catlow",
+    "email": "sam@catlow.tech"
+  },
+  "homepage": "[TODO: plugin homepage URL]",
+  "repository": "[TODO: repository URL]",
+  "license": "MIT",
+  "keywords": [
+    "go",
+    "golang",
+    "coding",
+    "testing",
+    "documentation",
+    "mcp",
+    "tui",
+    "api"
+  ],
+  "agents": "./agents/",
+  "skills": "./skills/",
+  "hooks": "./hooks.json",
+  "mcpServers": "./.mcp.json",
+  "interface": {
+    "displayName": "Go Dev Toolkit",
+    "shortDescription": "Go coding, API, TUI, and MCP workflows",
+    "longDescription": "Bundle curated Go skills for general development, documentation, error handling, modernization, testing, Bubble Tea TUIs, HUMA APIs, and official Go SDK MCP server creation.",
+    "developerName": "Sam Catlow",
+    "category": "Coding",
+    "capabilities": [
+      "Interactive",
+      "Write"
+    ],
+    "websiteURL": "[TODO: plugin website URL]",
+    "privacyPolicyURL": "[TODO: privacy policy URL]",
+    "termsOfServiceURL": "[TODO: terms of service URL]",
+    "defaultPrompt": [
+      "Review and improve this Go codebase using the bundled Go skills",
+      "Build a HUMA API endpoint with strong validation and tests",
+      "Create a Go MCP server with typed tools and end-to-end tests"
+    ],
+    "brandColor": "#00ADD8",
+    "screenshots": []
+  }
+}

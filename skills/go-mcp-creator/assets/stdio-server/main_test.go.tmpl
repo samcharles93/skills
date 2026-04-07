@@ -1,0 +1,62 @@
+package main
+
+import (
+	"context"
+	"strings"
+	"testing"
+
+	"github.com/modelcontextprotocol/go-sdk/mcp"
+)
+
+func TestGreetToolEndToEnd(t *testing.T) {
+	ctx := context.Background()
+
+	server := mcp.NewServer(&mcp.Implementation{
+		Name:    "__SERVER_NAME__",
+		Version: "v1.0.0",
+	}, nil)
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "greet",
+		Description: "Return a greeting for a person",
+	}, Greet)
+
+	serverTransport, clientTransport := mcp.NewInMemoryTransports()
+
+	serverSession, err := server.Connect(ctx, serverTransport, nil)
+	if err != nil {
+		t.Fatalf("connect server: %v", err)
+	}
+	defer serverSession.Close()
+
+	client := mcp.NewClient(&mcp.Implementation{
+		Name:    "test-client",
+		Version: "v1.0.0",
+	}, nil)
+	clientSession, err := client.Connect(ctx, clientTransport, nil)
+	if err != nil {
+		t.Fatalf("connect client: %v", err)
+	}
+	defer clientSession.Close()
+
+	res, err := clientSession.CallTool(ctx, &mcp.CallToolParams{
+		Name:      "greet",
+		Arguments: map[string]any{"name": "Sam"},
+	})
+	if err != nil {
+		t.Fatalf("call tool: %v", err)
+	}
+	if res.IsError {
+		t.Fatalf("tool returned isError=true")
+	}
+	if len(res.Content) == 0 {
+		t.Fatalf("tool returned no content")
+	}
+
+	text, ok := res.Content[0].(*mcp.TextContent)
+	if !ok {
+		t.Fatalf("unexpected content type %T", res.Content[0])
+	}
+	if !strings.Contains(text.Text, "Sam") {
+		t.Fatalf("unexpected tool text: %q", text.Text)
+	}
+}

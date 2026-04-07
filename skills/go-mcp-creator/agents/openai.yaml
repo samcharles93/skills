@@ -1,0 +1,4 @@
+interface:
+  display_name: "Go MCP Creator"
+  short_description: "Build or extend Go MCP servers with the official go-sdk, typed tools, transport guidance, and validation workflows."
+  default_prompt: "Help build or update a Go MCP server in this project using the current official go-sdk patterns, typed tool registration, and end-to-end validation."

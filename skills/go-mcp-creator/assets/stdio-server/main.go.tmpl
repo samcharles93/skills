@@ -1,0 +1,47 @@
+package main
+
+import (
+	"context"
+	"log"
+
+	"github.com/modelcontextprotocol/go-sdk/mcp"
+)
+
+type GreetInput struct {
+	Name string `json:"name" jsonschema:"the name of the person to greet"`
+}
+
+type GreetOutput struct {
+	Greeting string `json:"greeting" jsonschema:"the greeting returned to the caller"`
+}
+
+func Greet(
+	ctx context.Context,
+	req *mcp.CallToolRequest,
+	input GreetInput,
+) (*mcp.CallToolResult, GreetOutput, error) {
+	_ = ctx
+	_ = req
+
+	// TODO: replace this sample logic with project-specific behavior.
+	text := "Hello, " + input.Name + "!"
+	return &mcp.CallToolResult{
+		Content: []mcp.Content{&mcp.TextContent{Text: text}},
+	}, GreetOutput{Greeting: text}, nil
+}
+
+func main() {
+	server := mcp.NewServer(&mcp.Implementation{
+		Name:    "__SERVER_NAME__",
+		Version: "v1.0.0",
+	}, nil)
+
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "greet",
+		Description: "Return a greeting for a person",
+	}, Greet)
+
+	if err := server.Run(context.Background(), &mcp.StdioTransport{}); err != nil {
+		log.Fatal(err)
+	}
+}
