@@ -1,0 +1,149 @@
+# Starting golangci-lint configuration. Copy to .golangci.yml at the repo root
+# and change the gci prefix to the module path.
+#
+# Schema: https://golangci-lint.run/jsonschema/golangci.jsonschema.json
+# Every option is documented upstream in .golangci.reference.yml.
+# Validate changes with `golangci-lint config verify` before committing.
+#
+# Philosophy: curated over exhaustive. A noisy gate gets disabled, and a
+# disabled gate enforces nothing. Enabled here are the linters that catch real
+# defect classes — silent error swallowing, unchecked type assertions, context
+# misuse, unclosed bodies — plus structural limits that keep code readable.
+#
+# Note: golangci-lint analyses one build target at a time and defaults to the
+# host. Files behind build constraints (//go:build js, windows, ...) need a
+# second run with GOOS/GOARCH set, or they are never linted.
+version: "2"
+
+run:
+  timeout: 5m
+  tests: true
+  go: "1.26"
+
+linters:
+  default: standard
+  enable:
+    # Structure and complexity
+    - cyclop
+    - dupl
+    - funlen
+    - gocognit
+    - gocyclo
+    - maintidx
+    - nestif
+
+    # Architecture
+    - importas
+    - interfacebloat
+
+    # Correctness
+    - bodyclose
+    - containedctx
+    - contextcheck
+    - copyloopvar
+    - durationcheck
+    - errorlint
+    - fatcontext
+    - forcetypeassert
+    - makezero
+    - nilerr
+    - nilnesserr
+    - noctx
+    - reassign
+    - recvcheck
+    - rowserrcheck
+    - sqlclosecheck
+
+    # Idiom and hygiene
+    - gocritic
+    - godox
+    - misspell
+    - predeclared
+    - sloglint
+    - unconvert
+    - usestdlibvars
+    - usetesting
+
+  settings:
+    cyclop:
+      max-complexity: 15
+    dupl:
+      threshold: 150
+    funlen:
+      lines: 80
+      statements: 50
+    gocognit:
+      min-complexity: 30
+    gocyclo:
+      min-complexity: 20
+    maintidx:
+      under: 20
+    nestif:
+      min-complexity: 5
+
+    godox:
+      # Tracked work belongs in the issue tracker, not in a comment.
+      keywords:
+        - FIXME
+        - TODO
+        - HACK
+        - BUG
+
+    interfacebloat:
+      max: 8
+
+    sloglint:
+      no-mixed-args: true
+      key-naming-case: snake
+
+  exclusions:
+    generated: lax
+    warn-unused: true
+    presets:
+      - comments
+      - std-error-handling
+      - common-false-positives
+      - legacy
+    rules:
+      # Table-driven tests are supposed to resemble each other, and splitting
+      # one to satisfy a complexity budget makes it harder to read. Correctness
+      # linters still apply to tests.
+      - path: _test\.go
+        linters:
+          - cyclop
+          - dupl
+          - funlen
+          - gocognit
+          - gocyclo
+          - maintidx
+
+formatters:
+  enable:
+    - gofumpt
+    - goimports
+    - gci
+  settings:
+    gofumpt:
+      extra-rules: true
+    gci:
+      # Standard library, third party, then this module.
+      sections:
+        - standard
+        - default
+        - prefix(github.com/your-org/your-module)
+      custom-order: true
+  exclusions:
+    generated: strict
+
+issues:
+  # 0 = report everything. The defaults (50 per linter, 3 per message) silently
+  # truncate, which turns the issue count into a number you cannot track
+  # downward.
+  max-issues-per-linter: 0
+  max-same-issues: 0
+
+output:
+  show-stats: true
+  sort-order:
+    - linter
+    - file

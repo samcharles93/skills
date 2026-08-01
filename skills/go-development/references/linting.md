@@ -1,5 +1,44 @@
 # Go Linting and Code Quality
 
+## Doctrine: a gate that can be argued with enforces nothing
+
+A linter is an environmental constraint, not a suggestion. Two failure modes
+destroy it, and both feel reasonable at the time:
+
+**Silencing findings to make the number look good.** Adding an exclusion
+because a linter flagged something inconvenient is deciding what the linter is
+allowed to say. The finding count drops, the code does not improve, and the
+next reader trusts a gate that is no longer checking anything. Fix the code, or
+suppress the single site with a stated reason — never widen the rule set's
+blind spot to cover a category.
+
+**Keeping a gate so noisy it gets ignored.** A rule that fires hundreds of
+times on idiomatic code trains everyone to skim past output, including the
+three findings that matter. Curate the enabled set once, deliberately, then
+drive the count to zero and hold it there.
+
+The distinction is where the judgement is applied: choosing which linters to
+enable is a design decision made once and reviewed; excluding a linter after it
+flags real code is usually the beginning of a dead gate.
+
+## When a finding must NOT be applied
+
+Some findings are correct in general and wrong for the specific site. Applying
+them mechanically introduces bugs. Recognise these before "fixing":
+
+- **Suggested simplifications that change semantics.** `QF1008` ("could remove
+  embedded field from selector") on a type that embeds the very interface it
+  delegates to turns explicit delegation into infinite recursion.
+- **`nilerr` on deliberate skip logic.** A `filepath.Walk` callback that
+  returns `nil` on an unreadable entry is skipping it on purpose; returning the
+  error aborts the whole walk.
+- **Complexity limits on a genuinely irreducible algorithm.** Splitting a
+  parser or a state machine to satisfy a line count can make it harder to read.
+
+For these, suppress the single line or function with `//nolint:linter // reason`
+and state the reason in terms of behaviour, not preference. A `//nolint`
+without a reason is indistinguishable from giving up.
+
 ## golangci-lint v2 Configuration
 
 golangci-lint v2 uses a new YAML structure. Here's a production-ready configuration:
@@ -107,6 +146,114 @@ formatters:
         - default
         - prefix(github.com/your-org/your-project)
 ```
+
+
+## Adopting golangci-lint on an existing codebase
+
+A first run on a mature repository commonly reports hundreds of findings. Work
+through it as a measured backlog, not a single sweep.
+
+### 1. Establish the baseline
+
+```bash
+golangci-lint run ./... 2>&1 | tail -30    # show-stats prints per-linter counts
+```
+
+Record the total and the per-linter breakdown. This number is the thing being
+driven to zero, so configure `max-issues-per-linter: 0` and
+`max-same-issues: 0` — the defaults truncate output and make the count
+untrackable.
+
+### 2. Split findings by kind
+
+Three groups, handled differently:
+
+| Kind | Examples | Approach |
+| --- | --- | --- |
+| Formatters | gofmt, gofumpt, goimports, gci | Auto-fix in one commit: `golangci-lint fmt ./...` |
+| Mechanical correctness | errcheck, bodyclose, noctx, errorlint | Fix in bulk; each is a local, provable change |
+| Structural | gocognit, cyclop, funlen, interfacebloat | Needs judgement; schedule as real work |
+
+Splitting production from test findings is usually more informative than
+splitting by linter:
+
+```bash
+golangci-lint run ./... 2>/dev/null | grep -E '^[a-z].*\.go:' | \
+  sed -E 's/^([^:]+):[0-9]+.*\(([a-z]+)\)$/\2 \1/' | \
+  awk '{ t=($2 ~ /_test\.go$/)?"test":"PROD"; print $1"\t"t }' | sort | uniq -c | sort -rn
+```
+
+### 3. Fix formatters first, separately
+
+Run the formatter as its own commit so the semantic diff that follows is
+readable. When other work is in flight on specific files, hold those back
+rather than forcing a merge conflict:
+
+```bash
+golangci-lint fmt ./...
+git checkout -- path/being/edited/elsewhere.go
+```
+
+### 4. Fix tests, then production
+
+Test findings are usually mechanical and are worth fixing rather than
+excluding — they are the cheapest possible practice for the gate. Two classes
+carry real value:
+
+- **`noctx` in tests**: an HTTP call or subprocess without a context means a
+  hung server hangs the whole package instead of failing one test. Bind them to
+  `t.Context()`.
+- **`bodyclose`**: includes the `*http.Response` returned by WebSocket
+  handshakes (`websocket.Dialer.Dial`), which is almost always discarded.
+
+Where many call sites share a shape, add one small helper per test package with
+a signature matching the function being replaced, so the call sites change
+minimally:
+
+```go
+func postJSON(ctx context.Context, url string, body io.Reader) (*http.Response, error) {
+    request, err := http.NewRequestWithContext(ctx, http.MethodPost, url, body)
+    if err != nil {
+        return nil, err
+    }
+    request.Header.Set("Content-Type", "application/json")
+    return http.DefaultClient.Do(request)
+}
+```
+
+### 5. Verify after every batch
+
+Bulk edits — especially scripted ones — break code in ways the linter does not
+see. Run `go build ./... && go vet ./... && go test ./...` after each batch. A
+blanket `_ =` prefix, for instance, silently breaks any call returning more
+than one value.
+
+## Linting every build target
+
+golangci-lint analyses **one build target at a time** and defaults to the host
+platform. Files behind build constraints are invisible to a plain run:
+
+```bash
+golangci-lint run ./...                              # host only
+GOOS=js GOARCH=wasm golangci-lint run ./...          # js/wasm sources
+GOOS=windows golangci-lint run ./...                 # windows-only files
+```
+
+Any project with `//go:build js`, `//go:build windows` or similar needs a
+second invocation in its Makefile, or those files are simply unlinted. Note
+that a directory containing two package names (a `main.go` behind a build tag
+alongside a package file) will fail the typecheck on the target where both are
+visible; lint those packages explicitly by path.
+
+## Verifying the config itself
+
+```bash
+golangci-lint config verify        # validate against the schema before committing
+golangci-lint linters              # list enabled/disabled linters for this config
+```
+
+Run `config verify` after every edit. A typo in a linter name is silently
+ignored by some versions, leaving a rule that was never enabled.
 
 ## Linter Selection Strategy
 

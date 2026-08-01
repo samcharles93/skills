@@ -1,6 +1,6 @@
 ---
 name: go-development
-description: Use when developing, reviewing, or maintaining Go code. Covers documentation, error handling, modernization, and testing. Triggers on any Go-related task including code review, adding features, fixing bugs, or improving code quality.
+description: This skill should be used when the user asks to write, review, refactor or debug Go code, or says "add golangci-lint", "set up linting", "fix lint errors", "improve code quality", "clean up code smells", "format this Go code", "run the quality gate", "add a linter config", or mentions gofmt, gofumpt, staticcheck, go vet, govulncheck or .golangci.yml. Covers the end-to-end development process, code quality gates, documentation, error handling, modernization and testing for Go projects.
 ---
 
 # Go Development
@@ -219,41 +219,91 @@ go func() {
 | "Check tests" | go-test-validator |
 | "Validate test patterns" | go-test-validator |
 
-## Quality Gates
+## Development Process
 
-Run before completing any Go work:
+Apply the same loop to every change. Each step produces the evidence the next
+one relies on. Full detail in `references/development-process.md`.
+
+1. **Understand** the existing behaviour and the invariant it protects. Read
+   the code and its tests, not a summary of them. Verify any claim made by a
+   prior report against the source before acting on it.
+2. **Reproduce** the defect with a failing test *before* changing the
+   implementation — and confirm it actually fails for the stated reason. For a
+   performance defect, the reproduction is a recorded baseline measurement.
+3. **Change** the smallest thing that addresses the cause rather than the
+   symptom. Leave unrelated cleanup out of the commit.
+4. **Prove** the fix: the reproduction passes, and — critically —
+   *mutation-check* it by reverting the fix to confirm the test fails again. A
+   test that passes either way has proved nothing.
+5. **Gate**: run the full quality gate below, not just the changed package.
+6. **Report** honestly: what was verified, what was skipped, what remains.
+
+## Quality Gate
+
+Run before completing any Go work. `scripts/lint-gate.sh` runs the whole
+sequence and reports every failing stage rather than stopping at the first:
 
 ```bash
-# Formatting
-gofmt -l .
-goimports -l .
-
-# Static analysis
-go vet ./...
-staticcheck ./...
-
-# Security
-govulncheck ./...
-
-# Testing
-go test -race ./...
-go test -cover ./...
-
-# Modernization
-go fix -diff .
-
-# Documentation completeness
-python3 ~/.claude/skills/go-docs/scripts/analyze_docs.py
-
-# Error handling
-python3 ~/.claude/skills/go-error-analyzer/scripts/find_unhandled_errors.py
-
-# Pattern modernization
-python3 ~/.claude/skills/go-modernize/scripts/check_modern_go.py
-
-# Test validation
-python3 ~/.claude/skills/go-test-validator/scripts/check_tests.py
+scripts/lint-gate.sh            # full gate
+scripts/lint-gate.sh --quick    # skip -race and govulncheck during the loop
+scripts/lint-gate.sh --fix      # apply formatters and safe fixes first
 ```
+
+Equivalent steps, in order:
+
+```bash
+gofmt -l .                   # formatting (empty output = pass)
+go build ./...
+go vet ./...
+golangci-lint run ./...      # the substantive gate — see below
+staticcheck ./...
+govulncheck ./...            # known vulnerabilities in dependencies
+go test ./...
+go test -race ./...          # mandatory for any concurrency change
+```
+
+Prefer a project's own gate (`make check`, `task check`) when one exists.
+
+For deeper analysis, the sub-skills carry their own checkers:
+
+```bash
+python3 ~/.claude/skills/go-docs/scripts/analyze_docs.py                    # documentation completeness
+python3 ~/.claude/skills/go-error-analyzer/scripts/find_unhandled_errors.py # error handling
+python3 ~/.claude/skills/go-modernize/scripts/check_modern_go.py            # outdated patterns
+python3 ~/.claude/skills/go-test-validator/scripts/check_tests.py           # test quality
+```
+
+## Code Quality with golangci-lint
+
+golangci-lint replaces a scattering of individual tools with one curated,
+version-controlled rule set. Use `assets/golangci.yml` as a starting `.golangci.yml`
+— it enables correctness linters (errcheck, errorlint, bodyclose, noctx,
+nilerr, forcetypeassert, contextcheck), structural limits (cyclop, gocognit,
+funlen, nestif) and formatters (gofumpt, goimports, gci).
+
+**Two rules keep a gate alive:**
+
+- **Do not silence findings to lower the count.** Adding an exclusion because a
+  linter flagged inconvenient code decides what the linter is allowed to say.
+  Fix the code, or suppress the single site with `//nolint:linter // reason`
+  stating the behaviour that justifies it.
+- **Do not keep a rule that fires constantly on idiomatic code.** Noise trains
+  readers to skim past the findings that matter. Curate the enabled set once,
+  deliberately, then drive the count to zero.
+
+Some findings must **not** be applied mechanically — they are correct in
+general and wrong at that site. Applying `QF1008` to a type that embeds the
+interface it delegates to produces infinite recursion; applying `nilerr` to a
+`filepath.Walk` callback that deliberately skips unreadable entries aborts the
+walk. Recognise these, suppress with a reason, and move on.
+
+**Linting covers one build target at a time.** A plain run only sees the host
+platform, so files behind `//go:build js`, `//go:build windows` and similar are
+never checked unless run again with `GOOS`/`GOARCH` set.
+
+Adopting the linter on an existing codebase, splitting findings into
+auto-fixable and judgement-requiring groups, and the per-finding fix patterns
+are in `references/linting.md`.
 
 ## Quick Reference: Modern Go (1.22-1.26)
 
@@ -343,68 +393,21 @@ func NewServer(options ...Option) *Server {
 srv := NewServer(WithTimeout(5*time.Second), WithLogger(log))
 ```
 
-## Uber Style Patterns
-
-### Key Uber Conventions
+## Uber Style Conventions
 
 | Pattern | Uber Style |
 |---------|-----------|
 | Global vars | `_defaultTimeout` (prefix with `_`) |
-| Atomics | Use `go.uber.org/atomic` (type-safe) |
 | Channel buffers | "One or none" - avoid arbitrary sizes |
 | Enums | Start at 1 with `iota + 1` |
-| Goroutines | Never fire-and-forget, no goroutines in `init()` |
+| Goroutines | Never fire-and-forget; none in `init()`; explicit exit condition |
 | Time types | `time.Time` for instants, `time.Duration` for periods |
 | Exit | Only in `main()`, delegate to `run()` |
 | String conversion | Prefer `strconv` over `fmt` on hot paths |
-| Line length | Soft limit of 99 characters |
+| Test fields | `give` for input, `want` for expected |
 
-### Table-Driven Tests (Uber Style)
-
-```go
-func TestParse(t *testing.T) {
-    tests := []struct {
-        name    string
-        give    string      // input with "give" prefix
-        want    *Result     // expected with "want" prefix
-        wantErr error
-    }{
-        {name: "valid", give: "input", want: expected},
-    }
-    for _, tt := range tests {
-        t.Run(tt.name, func(t *testing.T) {
-            got, err := Parse(tt.give)
-            // ... assertions
-        })
-    }
-}
-```
-
-### Goroutine Lifecycle (Uber)
-
-```go
-// Bad: Fire and forget
-go process(data)
-
-// Good: Explicit lifecycle
-type Worker struct {
-    done chan struct{}
-    wg   sync.WaitGroup
-}
-
-func (w *Worker) Start() {
-    w.wg.Add(1)
-    go func() {
-        defer w.wg.Done()
-        // work with exit condition
-    }()
-}
-
-func (w *Worker) Stop() {
-    close(w.done)
-    w.wg.Wait()
-}
-```
+Full conventions, including worker lifecycle and atomics, in
+`references/uber-style.md`.
 
 ## References
 
@@ -413,6 +416,35 @@ func (w *Worker) Stop() {
 - [Google Go Style Decisions](https://google.github.io/styleguide/go/decisions)
 - [Google Go Best Practices](https://google.github.io/styleguide/go/best-practices)
 - [Uber Go Style Guide](https://github.com/uber-go/guide/blob/master/style.md) (see `references/uber-style.md`)
+
+## Additional Resources
+
+### Reference Files
+
+- **`references/development-process.md`** - The full change loop, performance
+  work, concurrency changes and test hygiene
+- **`references/linting.md`** - golangci-lint config, adoption on an existing
+  codebase, per-finding fixes, complexity thresholds
+- **`references/testing.md`** - Test patterns and coverage
+- **`references/modern-features.md`** - Go 1.22-1.26 idioms
+- **`references/uber-style.md`** - Uber Go Style Guide conventions
+- **`references/architecture.md`**, **`references/api-design.md`** - Structure
+  and API surface decisions
+- **`references/resilience.md`**, **`references/docker.md`**,
+  **`references/makefile.md`** - Operational concerns
+- **`references/fuzz-testing.md`**, **`references/mutation-testing.md`** -
+  Deeper verification techniques
+
+### Scripts
+
+- **`scripts/lint-gate.sh`** - Runs the full quality gate, reporting every
+  failing stage
+- **`scripts/verify-go-project.sh`** - Validates project structure and tooling
+
+### Assets
+
+- **`assets/golangci.yml`** - Copy-ready `.golangci.yml`; change the gci prefix
+  to the module path
 
 ## Related Skills
 
