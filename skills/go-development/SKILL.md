@@ -1,14 +1,16 @@
 ---
 name: go-development
-description: This skill should be used when the user asks to write, review, refactor or debug Go code, or says "add golangci-lint", "set up linting", "fix lint errors", "improve code quality", "clean up code smells", "format this Go code", "run the quality gate", "add a linter config", or mentions gofmt, gofumpt, staticcheck, go vet, govulncheck or .golangci.yml. Covers the end-to-end development process, code quality gates, documentation, error handling, modernization and testing for Go projects.
+description: This skill should be used when the user asks to write, review, refactor or debug Go code, or says "is this idiomatic Go", "review this Go code", "fix lint errors", "run the quality gate", "improve code quality", "clean up code smells", "format this Go code", "wrap this error", "add a table-driven test", or mentions gofmt, gofumpt, staticcheck, go vet or govulncheck. Covers Go naming, error handling, interface and concurrency idioms, the reproduce-fix-prove change loop, and the quality gate to run before calling a change done. For authoring a .golangci.yml specifically, use the golangci-lint skill.
 ---
 
 # Go Development
 
 ## Overview
 
-Comprehensive Go development guide combining Effective Go, the Google Style
-Guide, Uber Go Style and modern Go 1.24+ patterns.
+Go development guide combining Effective Go, the Google Style Guide, Uber Go
+Style and modern Go 1.24+ patterns. The process and the gate come first because
+they apply to every change; the style material below them is reference to consult
+as needed.
 
 ## When to Use
 
@@ -17,186 +19,27 @@ Use this skill for any Go work:
 - Writing, reviewing or refactoring Go code
 - Adding features or fixing bugs in a Go project
 - Running the quality gate before calling a change done
-- Setting up or fixing linting, formatting or vulnerability checks
-- Learning or applying Go idioms and conventions
+- Applying Go idioms for naming, errors, interfaces and concurrency
 
-For golangci-lint configuration specifically, see the companion `golangci-lint`
-skill. For building an MCP server or a HUMA API, see `go-mcp-creator` and
-`huma-api-builder`.
-
-## Core Principles
-
-### Names (Effective Go + Google Style)
-
-| Rule | Example | Avoid |
-|------|---------|-------|
-| Package names: short, lowercase, no underscores | `package bytes` | `package byte_utils` |
-| MixedCaps for exported names | `MaxLength` | `MAX_LENGTH`, `max_length` |
-| Omit Get prefix | `obj.Owner()` | `obj.GetOwner()` |
-| Receivers: 1-2 letters | `(b *Buffer)` | `(buffer *Buffer)` |
-| Initialisms uniform case | `URL`, `HTTP` | `Url`, `Http` |
-
-```go
-// Package bytes implements functions for the manipulation of byte slices.
-package bytes
-
-// Buffer is a variable-sized buffer of bytes with Read and Write methods.
-type Buffer struct { ... }
-
-// Reset resets the buffer to be empty.
-func (b *Buffer) Reset() { ... }
-```
-
-### Error Handling (Effective Go + Google + Uber)
-
-**Core Rules:**
-1. Errors are values - check explicitly
-2. Error strings: lowercase, no punctuation
-3. Wrap with `%w` to allow unwrapping (place at end)
-4. Use `errors.Is` and `errors.As` for inspection
-5. **Handle Once** - log OR return, not both
-6. Skip "failed to" prefixes in error messages
-
-**Uber Style Additions:**
-```go
-// Bad: Log and return (handled twice)
-if err := doSomething(); err != nil {
-    log.Printf("Failed to do something: %v", err)
-    return err
-}
-
-// Good: Handle once - return with context
-if err := doSomething(); err != nil {
-    return fmt.Errorf("do something: %w", err)
-}
-
-// Bad: "failed to" prefix
-return fmt.Errorf("failed to open file: %w", err)
-
-// Good: Clear action
-return fmt.Errorf("open config: %w", err)
-```
-
-```go
-// Good: wrap errors with context
-if err := os.Open(file); err != nil {
-    return fmt.Errorf("open config %s: %w", file, err)
-}
-
-// Good: check specific error types
-if errors.Is(err, fs.ErrNotExist) {
-    // handle missing file
-}
-
-// Good: extract typed errors
-var pathErr *fs.PathError
-if errors.As(err, &pathErr) {
-    // use pathErr.Path
-}
-```
-
-**Anti-patterns:**
-```go
-// Bad: panic for normal errors
-if err != nil {
-    panic(err)
-}
-
-// Bad: capitalized error strings
-return errors.New("File not found")  // "file not found"
-
-// Bad: string comparison
-if err.Error() == "file not found"  // fragile
-```
-
-### Documentation (Effective Go + Google Style)
-
-**Package Comments:**
-```go
-// Package bytes implements functions for the manipulation of byte slices.
-// It is analogous to the facilities of the strings package.
-package bytes
-```
-
-**Function Comments:**
-```go
-// Read reads the next len(p) bytes from the buffer or until the buffer
-// is drained. The return value n is the number of bytes read. If the
-// buffer has no data to return, err is io.EOF (unless len(p) is zero);
-// otherwise it is nil.
-func (b *Buffer) Read(p []byte) (n int, err error) { ... }
-```
-
-**Rules:**
-- Complete sentence, start with name being documented
-- Explain what and why, not how
-- Stand on its own (no surrounding context needed)
-- Use line comments (`//`), not block comments
-
-### Interfaces (Effective Go + Google Style)
-
-**Principles:**
-1. Define where consumed, not implemented
-2. Keep small (1-2 methods ideally)
-3. Return concrete types, accept interfaces
-4. Name with -er suffix for single method
-
-```go
-// Good: interface defined in consuming package
-type Reader interface {
-    Read(p []byte) (n int, err error)
-}
-
-// Good: implicit implementation
-type myReader struct{}
-func (r *myReader) Read(p []byte) (n int, err error) { ... }
-
-// Good: compile-time check
-var _ json.Marshaler = (*MyType)(nil)
-```
-
-### Concurrency (Effective Go)
-
-**Core Principle:** Do not communicate by sharing memory; share memory by communicating.
-
-```go
-// Good: channels for synchronization
-c := make(chan int)
-go func() {
-    doWork()
-    c <- 1  // signal completion
-}()
-<-c  // wait
-
-// Good: explicit goroutine lifecycle
-go func() {
-    defer wg.Done()
-    // work with clear exit condition
-}()
-```
-
-**Rules:**
-- Make goroutine lifecycles explicit
-- Prefer synchronous APIs
-- Use `chan struct{}` for signals
-- Close channels from sender only
+For authoring a `.golangci.yml`, use the companion `golangci-lint` skill. For an
+MCP server or a HUMA API, use `go-mcp-creator` and `huma-api-builder`.
 
 ## Development Process
 
-Apply this loop to every change. Each step produces the evidence the next
-one relies on. Full detail in `references/development-process.md`.
+Apply this loop to every change. Each step produces the evidence the next one
+relies on. Full detail in `references/development-process.md`.
 
-1. **Understand** the existing behaviour and the invariant it protects. Read
-   the code and its tests, not a summary of them. Verify any claim made by a
-   prior report against the source before acting on it.
+1. **Understand** the existing behaviour and the invariant it protects. Read the
+   code and its tests, not a summary of them. Verify any claim made by a prior
+   report against the source before acting on it.
 2. **Reproduce** the defect with a failing test *before* changing the
-   implementation — and confirm it actually fails for the stated reason. For a
-   performance defect, the reproduction is a recorded baseline measurement.
+   implementation, and confirm it fails for the stated reason. For a performance
+   defect, the reproduction is a recorded baseline measurement.
 3. **Change** the smallest thing that addresses the cause rather than the
    symptom. Leave unrelated cleanup out of the commit.
-4. **Prove** the fix: the reproduction passes, and — critically —
-   *mutation-check* it by reverting the fix to confirm the test fails again. A
-   test that passes either way has proved nothing.
+4. **Prove** the fix: the reproduction passes, and critically, *mutation-check*
+   it by reverting the fix to confirm the test fails again. A test that passes
+   either way has proved nothing.
 5. **Gate**: run the full quality gate below, not just the changed package.
 6. **Report** honestly: what was verified, what was skipped, what remains.
 
@@ -221,7 +64,7 @@ Equivalent steps, in order:
 gofmt -l .                   # formatting (empty output = pass)
 go build ./...
 go vet ./...
-golangci-lint run ./...      # the substantive gate — see below
+golangci-lint run ./...      # the substantive gate, see below
 staticcheck ./...
 govulncheck ./...            # known vulnerabilities in dependencies
 go test ./...
@@ -229,6 +72,20 @@ go test -race ./...          # mandatory for any concurrency change
 ```
 
 Prefer a project's own gate (`make check`, `task check`) when one exists.
+
+**The gate only covers the host platform.** `go build`, `go vet` and `go test`
+skip every file behind a build tag, so code under `//go:build js`,
+`//go:build windows` and similar stays unchecked while the gate reports green.
+Find the tagged files and re-run per target:
+
+```bash
+grep -rl '//go:build' --include='*.go' .
+GOOS=js GOARCH=wasm go vet ./...
+```
+
+`-race` is not universally available either; `js/wasm` rejects it outright, so
+note which build targets the race gate did not cover rather than implying it
+covered everything.
 
 For deeper analysis, run the checkers bundled with this skill. Each takes the
 project directory as its first argument and defaults to `.`, so pass the target
@@ -245,10 +102,10 @@ python3 "$SKILL_DIR/scripts/analysis/check_tests.py" .           # test quality
 ## Code Quality with golangci-lint
 
 golangci-lint replaces a scattering of individual tools with one curated,
-version-controlled rule set. Use `assets/golangci.yml` as a starting `.golangci.yml`
-— it enables correctness linters (errcheck, errorlint, bodyclose, noctx,
-nilerr, forcetypeassert, contextcheck), structural limits (cyclop, gocognit,
-funlen, nestif) and formatters (gofumpt, goimports, gci).
+version-controlled rule set. Use `assets/golangci.yml` as a starting
+`.golangci.yml`: it enables correctness linters (errcheck, errorlint, bodyclose,
+noctx, nilerr, forcetypeassert, contextcheck), structural limits (cyclop,
+gocognit, funlen, nestif) and formatters (gofumpt, goimports, gci).
 
 **Two rules keep a gate alive:**
 
@@ -260,165 +117,155 @@ funlen, nestif) and formatters (gofumpt, goimports, gci).
   readers to skim past the findings that matter. Curate the enabled set once,
   deliberately, then drive the count to zero.
 
-Some findings must **not** be applied mechanically — they are correct in
-general and wrong at that site. Applying `QF1008` to a type that embeds the
-interface it delegates to produces infinite recursion; applying `nilerr` to a
-`filepath.Walk` callback that deliberately skips unreadable entries aborts the
-walk. Recognise these, suppress with a reason, and move on.
-
-**Linting covers one build target at a time.** A plain run only sees the host
-platform, so files behind `//go:build js`, `//go:build windows` and similar are
-never checked unless run again with `GOOS`/`GOARCH` set.
+Some findings must **not** be applied mechanically: they are correct in general
+and wrong at that site. Applying `QF1008` to a type that embeds the interface it
+delegates to produces infinite recursion; applying `nilerr` to a `filepath.Walk`
+callback that deliberately skips unreadable entries aborts the walk. Recognise
+these, suppress with a reason, and move on.
 
 Adopting the linter on an existing codebase, splitting findings into
 auto-fixable and judgement-requiring groups, and the per-finding fix patterns
 are in `references/linting.md`.
 
-## Quick Reference: Modern Go (1.22-1.26)
+## Core Principles
+
+### Names
+
+| Rule | Example | Avoid |
+|------|---------|-------|
+| Package names: short, lowercase, no underscores | `package bytes` | `package byte_utils` |
+| MixedCaps for exported names | `MaxLength` | `MAX_LENGTH`, `max_length` |
+| Omit Get prefix | `obj.Owner()` | `obj.GetOwner()` |
+| Receivers: 1-2 letters | `(b *Buffer)` | `(buffer *Buffer)` |
+| Initialisms uniform case | `URL`, `HTTP` | `Url`, `Http` |
+
+### Error Handling
+
+1. Errors are values, check them explicitly
+2. Error strings: lowercase, no punctuation, no "failed to" prefix
+3. Wrap with `%w` to allow unwrapping, placed at the end
+4. Inspect with `errors.Is` and `errors.As`, never string comparison
+5. **Handle once**: log or return, not both
 
 ```go
-// Go 1.22: range over integers
-for i := range n { ... }  // not: for i := 0; i < n; i++
-
-// Go 1.21: min/max builtins
-x = max(x, minVal)  // not: if x < minVal { x = minVal }
-
-// Go 1.18+: any alias
-func f(v any) { ... }  // not: func f(v interface{})
-
-// Go 1.24: b.Loop() for benchmarks
-func BenchmarkFoo(b *testing.B) {
-    for b.Loop() {  // not: for i := 0; i < b.N; i++
-        doWork()
-    }
+// Bad: handled twice, and the message repeats what the caller already knows.
+if err := doSomething(); err != nil {
+    log.Printf("Failed to do something: %v", err)
+    return err
 }
 
-// Go 1.25: WaitGroup.Go()
+// Good: one handling, naming the action that failed.
+if err := os.Open(file); err != nil {
+    return fmt.Errorf("open config %s: %w", file, err)
+}
+
+// Good: inspect by sentinel or type, never by message text.
+if errors.Is(err, fs.ErrNotExist) { ... }
+
+var pathErr *fs.PathError
+if errors.As(err, &pathErr) { ... }
+```
+
+Avoid: `panic` for ordinary errors, capitalised error strings, and
+`err.Error() == "..."` comparisons.
+
+### Documentation
+
+- Complete sentence starting with the name being documented
+- Explain what and why, not how
+- Stands alone without surrounding context
+- Line comments (`//`), not block comments
+
+```go
+// Package bytes implements functions for the manipulation of byte slices.
+// It is analogous to the facilities of the strings package.
+package bytes
+
+// Read reads the next len(p) bytes from the buffer or until the buffer is
+// drained. The return value n is the number of bytes read. If the buffer has
+// no data to return, err is io.EOF (unless len(p) is zero); otherwise it is nil.
+func (b *Buffer) Read(p []byte) (n int, err error) { ... }
+```
+
+### Interfaces
+
+1. Define where consumed, not where implemented
+2. Keep small; one or two methods is the norm
+3. Return concrete types, accept interfaces
+4. Name single-method interfaces with an `-er` suffix
+5. Assert conformance at compile time: `var _ json.Marshaler = (*MyType)(nil)`
+
+A wide interface is occasionally the right call. A storage or backend
+abstraction that genuinely has one implementation per environment may need a
+dozen methods, and `interfacebloat` will flag it at eight. Take that as a prompt
+to justify the width, not an instruction to split it.
+
+### Values crossing an API boundary
+
+Copying a struct does not copy the arrays behind its slice and map fields, so a
+getter returning stored state hands the caller a live pointer into it. Either
+return a deep copy, or document that the result must not be modified. Silently
+sharing is how a caller mutating a returned payload corrupts committed data.
+
+Related: `nil` and empty slices marshal differently, `null` versus `[]`. Two
+implementations of one interface that disagree about which they return will make
+clients behave differently for no visible reason.
+
+### Concurrency
+
+**Do not communicate by sharing memory; share memory by communicating.**
+
+- Make goroutine lifecycles explicit, never fire-and-forget
+- Prefer synchronous APIs
+- Use `chan struct{}` for signals
+- Close channels from the sender only
+
+```go
+// Explicit lifecycle: the caller can wait, and the exit condition is visible.
 var wg sync.WaitGroup
-wg.Go(processTask)  // not: wg.Add(1); go func() { ... }()
+wg.Go(func() { doWork(ctx) })
 wg.Wait()
 ```
 
-## Common Patterns
+## Reference Material
 
-### Table-Driven Tests
-```go
-func TestAbs(t *testing.T) {
-    tests := []struct {
-        name     string
-        input    float64
-        expected float64
-    }{
-        {"negative", -1, 1},
-        {"zero", 0, 0},
-        {"positive", 1, 1},
-    }
-    for _, tt := range tests {
-        t.Run(tt.name, func(t *testing.T) {
-            if got := Abs(tt.input); got != tt.expected {
-                t.Errorf("Abs(%v) = %v, want %v", tt.input, got, tt.expected)
-            }
-        })
-    }
-}
-```
+Details deliberately kept out of this file:
 
-### Error Wrapping Chain
-```go
-// Each layer adds context
-if err := db.Query(); err != nil {
-    return fmt.Errorf("fetch user %d: %w", userID, err)
-}
+| File | Covers |
+|---|---|
+| `references/development-process.md` | The full change loop, performance work, concurrency changes, test hygiene |
+| `references/linting.md` | golangci-lint config, adoption on an existing codebase, per-finding fixes, complexity thresholds |
+| `references/testing.md` | Test patterns including table-driven tests, coverage |
+| `references/modern-features.md` | Go 1.22-1.26 idioms: range-over-int, `min`/`max`, `b.Loop()`, `WaitGroup.Go` |
+| `references/uber-style.md` | Uber conventions: global var naming, channel sizing, enums, worker lifecycle, atomics |
+| `references/api-design.md` | API surface decisions including functional options |
+| `references/architecture.md` | Project structure |
+| `references/resilience.md`, `references/docker.md`, `references/makefile.md` | Operational concerns |
+| `references/fuzz-testing.md`, `references/mutation-testing.md` | Deeper verification techniques |
 
-// Later, caller can check
-if errors.Is(err, sql.ErrNoRows) {
-    // user not found
-}
-```
+### Scripts
 
-### Functional Options
-```go
-type Server struct { ... }
+- `scripts/lint-gate.sh` runs the full quality gate, reporting every failing stage
+- `scripts/verify-go-project.sh` validates project structure and tooling
+- `scripts/analysis/*.py` are the four deeper checkers documented above
 
-type Option func(*Server)
+### Assets
 
-func WithTimeout(d time.Duration) Option {
-    return func(s *Server) { s.timeout = d }
-}
+- `assets/golangci.yml` is a copy-ready `.golangci.yml`; change the gci prefix
+  to the module path
 
-func WithLogger(l *slog.Logger) Option {
-    return func(s *Server) { s.logger = l }
-}
-
-func NewServer(options ...Option) *Server {
-    s := &Server{timeout: defaultTimeout}
-    for _, opt := range options {
-        opt(s)
-    }
-    return s
-}
-
-// Usage
-srv := NewServer(WithTimeout(5*time.Second), WithLogger(log))
-```
-
-## Uber Style Conventions
-
-| Pattern | Uber Style |
-|---------|-----------|
-| Global vars | `_defaultTimeout` (prefix with `_`) |
-| Channel buffers | "One or none" - avoid arbitrary sizes |
-| Enums | Start at 1 with `iota + 1` |
-| Goroutines | Never fire-and-forget; none in `init()`; explicit exit condition |
-| Time types | `time.Time` for instants, `time.Duration` for periods |
-| Exit | Only in `main()`, delegate to `run()` |
-| String conversion | Prefer `strconv` over `fmt` on hot paths |
-| Test fields | `give` for input, `want` for expected |
-
-Full conventions, including worker lifecycle and atomics, in
-`references/uber-style.md`.
-
-## References
+## External Reading
 
 - [Effective Go](https://go.dev/doc/effective_go)
 - [Google Go Style Guide](https://google.github.io/styleguide/go/guide)
 - [Google Go Style Decisions](https://google.github.io/styleguide/go/decisions)
 - [Google Go Best Practices](https://google.github.io/styleguide/go/best-practices)
-- [Uber Go Style Guide](https://github.com/uber-go/guide/blob/master/style.md) (see `references/uber-style.md`)
-
-## Additional Resources
-
-### Reference Files
-
-- **`references/development-process.md`** - The full change loop, performance
-  work, concurrency changes and test hygiene
-- **`references/linting.md`** - golangci-lint config, adoption on an existing
-  codebase, per-finding fixes, complexity thresholds
-- **`references/testing.md`** - Test patterns and coverage
-- **`references/modern-features.md`** - Go 1.22-1.26 idioms
-- **`references/uber-style.md`** - Uber Go Style Guide conventions
-- **`references/architecture.md`**, **`references/api-design.md`** - Structure
-  and API surface decisions
-- **`references/resilience.md`**, **`references/docker.md`**,
-  **`references/makefile.md`** - Operational concerns
-- **`references/fuzz-testing.md`**, **`references/mutation-testing.md`** -
-  Deeper verification techniques
-
-### Scripts
-
-- **`scripts/lint-gate.sh`** - Runs the full quality gate, reporting every
-  failing stage
-- **`scripts/verify-go-project.sh`** - Validates project structure and tooling
-
-### Assets
-
-- **`assets/golangci.yml`** - Copy-ready `.golangci.yml`; change the gci prefix
-  to the module path
+- [Uber Go Style Guide](https://github.com/uber-go/guide/blob/master/style.md)
 
 ## Related Skills
 
 Bundled alongside this skill in the go-dev-toolkit plugin:
 
-- **golangci-lint** - configuring `.golangci.yml`, the v2 schema, incremental adoption
-- **go-mcp-creator** - MCP servers built with the official Go SDK
-- **huma-api-builder** - REST APIs with HUMA v2
+- **golangci-lint** for authoring `.golangci.yml`, the v2 schema, incremental adoption
+- **go-mcp-creator** for MCP servers built with the official Go SDK
+- **huma-api-builder** for REST APIs with HUMA v2

@@ -11,10 +11,14 @@ That is what lets the same content serve more than one agent.
 
 | Skill | Covers |
 | --- | --- |
-| `go-development` | End-to-end development process, quality gate, idioms, error handling, testing, bundled analysis scripts |
+| `go-development` | Development process, quality gate, naming, error handling, interface and concurrency idioms, bundled analysis scripts |
 | `golangci-lint` | `.golangci.yml` v2 schema, linter settings, incremental adoption |
+| `go-ldap` | LDAP and Active Directory from Go: bind, search, authentication, passwords, groups |
 | `go-mcp-creator` | MCP servers built with the official Go SDK |
 | `huma-api-builder` | REST APIs with HUMA v2 |
+
+Skills own their triggers without overlapping. `go-development` covers fixing
+lint findings; `golangci-lint` covers authoring the config that produces them.
 
 ## Bundled MCP servers
 
@@ -61,7 +65,7 @@ Pi discovers any directory containing a `SKILL.md` under `~/.agents/skills/`.
 Symlink rather than copy, so there is only ever one copy on disk:
 
 ```bash
-for s in go-development golangci-lint go-mcp-creator huma-api-builder; do
+for s in go-development golangci-lint go-ldap go-mcp-creator huma-api-builder; do
   ln -sfn "$PWD/skills/$s" "$HOME/.agents/skills/$s"
 done
 ```

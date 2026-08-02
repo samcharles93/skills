@@ -16,7 +16,8 @@
     "testing",
     "documentation",
     "mcp",
-    "api"
+    "api",
+    "ldap"
   ],
   "skills": "./skills/",
   "hooks": "./hooks.json",
