@@ -18,11 +18,31 @@ That is what lets the same content serve more than one agent.
 
 ## Bundled MCP servers
 
-- `go-workspace`
-  - location: `mcp-servers/go-workspace`
-  - tools: `workspace_summary`, `list_packages`, `describe_package`, `changed_packages`
-  - every tool accepts an optional `root` path, so workspace inspection can
-    target the caller's repository explicitly
+`go-workspace`, at `mcp-servers/go-workspace`. Every tool accepts an optional
+`root` path, so inspection can target the caller's repository explicitly.
+
+| Tool | Does |
+| --- | --- |
+| `workspace_summary` | Overview of the module and its layout |
+| `list_packages` | Enumerate packages |
+| `describe_package` | Detail on one package |
+| `changed_packages` | Packages touched relative to git state |
+| `search_symbols` | Find symbols across the workspace |
+| `analyze_interface_impl` | Which types implement an interface |
+| `find_dependents` | Reverse dependency lookup |
+| `find_deprecated_usage` | Uses of deprecated identifiers |
+| `module_dependency_graph` | Module dependency graph |
+| `run_tests_for_package` | **Runs `go test`, which executes code from the target repository** |
+
+`run_tests_for_package` is the one to be deliberate about. Running a project's
+tests runs that project's code, so approve it only for repositories you trust.
+Note that `.claude/settings.local.json` in this repo pre-approves it and sets
+`enableAllProjectMcpServers`, which suppresses the prompt while working here.
+That file is untracked and does not ship.
+
+The server is started with `go run`, so it compiles on each start and needs a Go
+toolchain plus a warm module cache or network on first use. That is the price of
+staying platform independent rather than shipping a prebuilt binary.
 
 ## Installing
 

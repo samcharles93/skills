@@ -8,9 +8,7 @@ description: This skill should be used when the user asks to write, review, refa
 ## Overview
 
 Comprehensive Go development guide combining Effective Go, the Google Style
-Guide, Uber Go Style and modern Go 1.24+ patterns. It is self-contained: the
-development process, the quality gate and the analysis scripts all ship inside
-this skill, so nothing here depends on another skill being installed.
+Guide, Uber Go Style and modern Go 1.24+ patterns.
 
 ## When to Use
 
@@ -183,10 +181,9 @@ go func() {
 - Use `chan struct{}` for signals
 - Close channels from sender only
 
-
 ## Development Process
 
-Apply the same loop to every change. Each step produces the evidence the next
+Apply this loop to every change. Each step produces the evidence the next
 one relies on. Full detail in `references/development-process.md`.
 
 1. **Understand** the existing behaviour and the invariant it protects. Read
@@ -206,12 +203,16 @@ one relies on. Full detail in `references/development-process.md`.
 ## Quality Gate
 
 Run before completing any Go work. `scripts/lint-gate.sh` runs the whole
-sequence and reports every failing stage rather than stopping at the first:
+sequence and reports every failing stage rather than stopping at the first.
+
+Invoke it by absolute path. `SKILL_DIR` below stands for the directory holding
+this SKILL.md; substitute the real path. A bare relative path resolves against
+the working directory, which is the Go project rather than this skill:
 
 ```bash
-scripts/lint-gate.sh            # full gate
-scripts/lint-gate.sh --quick    # skip -race and govulncheck during the loop
-scripts/lint-gate.sh --fix      # apply formatters and safe fixes first
+"$SKILL_DIR/scripts/lint-gate.sh"            # full gate
+"$SKILL_DIR/scripts/lint-gate.sh" --quick    # skip -race and govulncheck during the loop
+"$SKILL_DIR/scripts/lint-gate.sh" --fix      # apply formatters and safe fixes first
 ```
 
 Equivalent steps, in order:
@@ -229,15 +230,16 @@ go test -race ./...          # mandatory for any concurrency change
 
 Prefer a project's own gate (`make check`, `task check`) when one exists.
 
-For deeper analysis, run the checkers bundled with this skill. Paths are
-relative to the skill directory, so they resolve under any harness that loads
-skills by directory:
+For deeper analysis, run the checkers bundled with this skill. Each takes the
+project directory as its first argument and defaults to `.`, so pass the target
+explicitly rather than relying on the default. Add `--format json` when
+aggregating findings instead of reading them:
 
 ```bash
-python3 scripts/analysis/analyze_docs.py            # documentation completeness
-python3 scripts/analysis/find_unhandled_errors.py   # swallowed errors
-python3 scripts/analysis/check_modern_go.py         # pre-1.22 patterns
-python3 scripts/analysis/check_tests.py             # test quality
+python3 "$SKILL_DIR/scripts/analysis/analyze_docs.py" .          # documentation completeness
+python3 "$SKILL_DIR/scripts/analysis/find_unhandled_errors.py" . # swallowed errors
+python3 "$SKILL_DIR/scripts/analysis/check_modern_go.py" .       # pre-1.22 patterns
+python3 "$SKILL_DIR/scripts/analysis/check_tests.py" .           # test quality
 ```
 
 ## Code Quality with golangci-lint

@@ -6,8 +6,8 @@
     "name": "Sam Catlow",
     "email": "sam@catlow.tech"
   },
-  "homepage": "https://github.com/samcatlow/go-agent-skills",
-  "repository": "https://github.com/samcatlow/go-agent-skills",
+  "homepage": "https://github.com/samcharles93/go-agent-skills",
+  "repository": "https://github.com/samcharles93/go-agent-skills",
   "license": "MIT",
   "keywords": [
     "go",
@@ -16,16 +16,14 @@
     "testing",
     "documentation",
     "mcp",
-    "tui",
     "api"
   ],
-  "agents": "./agents/",
   "skills": "./skills/",
   "hooks": "./hooks.json",
   "mcpServers": "./.mcp.json",
   "interface": {
     "displayName": "Go Dev Toolkit",
-    "shortDescription": "Go coding, API, TUI, and MCP workflows",
+    "shortDescription": "Go coding, API, and MCP workflows",
     "longDescription": "Bundles curated Go skills for general development and code quality, golangci-lint configuration, HUMA v2 APIs, and MCP servers built with the official Go SDK, plus a go-workspace MCP server for package discovery.",
     "developerName": "Sam Catlow",
     "category": "Coding",
@@ -33,7 +31,7 @@
       "Interactive",
       "Write"
     ],
-    "websiteURL": "https://github.com/samcatlow/go-agent-skills",
+    "websiteURL": "https://github.com/samcharles93/go-agent-skills",
     "privacyPolicyURL": "",
     "termsOfServiceURL": "",
     "defaultPrompt": [
