@@ -7,47 +7,24 @@ description: This skill should be used when the user asks to write, review, refa
 
 ## Overview
 
-Comprehensive Go development guide combining Effective Go, Google Style Guide, Uber Go Style, and modern Go 1.24+ patterns. This skill orchestrates specialized sub-skills for documentation, error handling, modernization, and testing.
+Comprehensive Go development guide combining Effective Go, the Google Style
+Guide, Uber Go Style and modern Go 1.24+ patterns. It is self-contained: the
+development process, the quality gate and the analysis scripts all ship inside
+this skill, so nothing here depends on another skill being installed.
 
 ## When to Use
 
-```dot
-digraph when_to_use {
-  "Need to work with Go code?" [shape=diamond];
-  "Analyze documentation?" [shape=diamond];
-  "Check error handling?" [shape=diamond];
-  "Modernize patterns?" [shape=diamond];
-  "Validate tests?" [shape=diamond];
-  "Use go-docs" [shape=box];
-  "Use go-error-analyzer" [shape=box];
-  "Use go-modernize" [shape=box];
-  "Use go-test-validator" [shape=box];
-  "Use this skill" [shape=box];
+Use this skill for any Go work:
 
-  "Need to work with Go code?" -> "Analyze documentation?";
-  "Analyze documentation?" -> "Use go-docs" [label="yes"];
-  "Analyze documentation?" -> "Check error handling?" [label="no"];
-  "Check error handling?" -> "Use go-error-analyzer" [label="yes"];
-  "Check error handling?" -> "Modernize patterns?" [label="no"];
-  "Modernize patterns?" -> "Use go-modernize" [label="yes"];
-  "Modernize patterns?" -> "Validate tests?" [label="no"];
-  "Validate tests?" -> "Use go-test-validator" [label="yes"];
-  "Validate tests?" -> "Use this skill" [label="no"];
-}
-```
+- Writing, reviewing or refactoring Go code
+- Adding features or fixing bugs in a Go project
+- Running the quality gate before calling a change done
+- Setting up or fixing linting, formatting or vulnerability checks
+- Learning or applying Go idioms and conventions
 
-**Always use this skill for:**
-- Writing or reviewing Go code
-- Refactoring existing Go code
-- Adding new features to Go projects
-- Code review and quality checks
-- Learning Go best practices
-
-**Then delegate to sub-skills:**
-- **go-docs**: Missing/incomplete documentation
-- **go-error-analyzer**: Error handling issues
-- **go-modernize**: Old patterns needing updates
-- **go-test-validator**: Test quality issues
+For golangci-lint configuration specifically, see the companion `golangci-lint`
+skill. For building an MCP server or a HUMA API, see `go-mcp-creator` and
+`huma-api-builder`.
 
 ## Core Principles
 
@@ -206,18 +183,6 @@ go func() {
 - Use `chan struct{}` for signals
 - Close channels from sender only
 
-## Sub-Skill Decision Matrix
-
-| Task | Use |
-|------|-----|
-| "Document this code" | go-docs |
-| "Add doc comments" | go-docs |
-| "Check error handling" | go-error-analyzer |
-| "Find unhandled errors" | go-error-analyzer |
-| "Modernize code" | go-modernize |
-| "Update to Go 1.22+" | go-modernize |
-| "Check tests" | go-test-validator |
-| "Validate test patterns" | go-test-validator |
 
 ## Development Process
 
@@ -264,13 +229,15 @@ go test -race ./...          # mandatory for any concurrency change
 
 Prefer a project's own gate (`make check`, `task check`) when one exists.
 
-For deeper analysis, the sub-skills carry their own checkers:
+For deeper analysis, run the checkers bundled with this skill. Paths are
+relative to the skill directory, so they resolve under any harness that loads
+skills by directory:
 
 ```bash
-python3 ~/.claude/skills/go-docs/scripts/analyze_docs.py                    # documentation completeness
-python3 ~/.claude/skills/go-error-analyzer/scripts/find_unhandled_errors.py # error handling
-python3 ~/.claude/skills/go-modernize/scripts/check_modern_go.py            # outdated patterns
-python3 ~/.claude/skills/go-test-validator/scripts/check_tests.py           # test quality
+python3 scripts/analysis/analyze_docs.py            # documentation completeness
+python3 scripts/analysis/find_unhandled_errors.py   # swallowed errors
+python3 scripts/analysis/check_modern_go.py         # pre-1.22 patterns
+python3 scripts/analysis/check_tests.py             # test quality
 ```
 
 ## Code Quality with golangci-lint
@@ -448,7 +415,8 @@ Full conventions, including worker lifecycle and atomics, in
 
 ## Related Skills
 
-- **go-docs** - Documentation completeness analysis
-- **go-error-analyzer** - Error handling validation
-- **go-modernize** - Go 1.22+ pattern checking
-- **go-test-validator** - Test pattern validation
+Bundled alongside this skill in the go-dev-toolkit plugin:
+
+- **golangci-lint** - configuring `.golangci.yml`, the v2 schema, incremental adoption
+- **go-mcp-creator** - MCP servers built with the official Go SDK
+- **huma-api-builder** - REST APIs with HUMA v2

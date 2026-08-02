@@ -1,4 +1,0 @@
-interface:
-  display_name: "Go TUI Builder"
-  short_description: "Build Go TUIs with Bubble Tea and Charmbracelet patterns."
-  default_prompt: "Implement, debug, and refactor Go terminal UIs using Bubble Tea, Bubbles, and Lip Gloss with production-grade state management, command/message design, and testing practices."
