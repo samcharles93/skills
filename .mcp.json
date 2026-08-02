@@ -1,3 +1,13 @@
 {
-  "mcpServers": {}
+  "mcpServers": {
+    "go-workspace": {
+      "command": "go",
+      "args": [
+        "-C",
+        "./mcp-servers/go-workspace",
+        "run",
+        "."
+      ]
+    }
+  }
 }

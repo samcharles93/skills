@@ -6,8 +6,8 @@
     "name": "Sam Catlow",
     "email": "sam@catlow.tech"
   },
-  "homepage": "[TODO: plugin homepage URL]",
-  "repository": "[TODO: repository URL]",
+  "homepage": "https://github.com/samcatlow/go-agent-skills",
+  "repository": "https://github.com/samcatlow/go-agent-skills",
   "license": "MIT",
   "keywords": [
     "go",
@@ -33,9 +33,9 @@
       "Interactive",
       "Write"
     ],
-    "websiteURL": "[TODO: plugin website URL]",
-    "privacyPolicyURL": "[TODO: privacy policy URL]",
-    "termsOfServiceURL": "[TODO: terms of service URL]",
+    "websiteURL": "https://github.com/samcatlow/go-agent-skills",
+    "privacyPolicyURL": "",
+    "termsOfServiceURL": "",
     "defaultPrompt": [
       "Review and improve this Go codebase using the bundled Go skills",
       "Build a HUMA API endpoint with strong validation and tests",
