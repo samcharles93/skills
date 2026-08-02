@@ -43,6 +43,14 @@ relies on. Full detail in `references/development-process.md`.
 5. **Gate**: run the full quality gate below, not just the changed package.
 6. **Report** honestly: what was verified, what was skipped, what remains.
 
+Any failure met along the way gets the same treatment, not just the defect the
+work started from. A compile error, an unexpected test failure or a panic
+surfaced while implementing something else is a gap in coverage: write the test
+that would have caught it, then fix. The exception is pure test-harness misuse
+with no production counterpart, such as combining `t.Parallel()` with
+`t.Setenv()`, which Go forbids outright. Fix those directly and say why no test
+was added.
+
 ## Quality Gate
 
 Run before completing any Go work. `scripts/lint-gate.sh` runs the whole
@@ -61,7 +69,7 @@ the working directory, which is the Go project rather than this skill:
 Equivalent steps, in order:
 
 ```bash
-gofmt -l .                   # formatting (empty output = pass)
+gofumpt -l .                 # formatting (empty output = pass)
 go build ./...
 go vet ./...
 golangci-lint run ./...      # the substantive gate, see below
@@ -71,7 +79,16 @@ go test ./...
 go test -race ./...          # mandatory for any concurrency change
 ```
 
-Prefer a project's own gate (`make check`, `task check`) when one exists.
+**Format with `gofumpt`, not `gofmt`.** gofumpt is a strict superset, so
+`gofmt -l` reports a file clean that `gofumpt -l` still flags, and a gate built
+on gofmt gives false green. Install it with `go install mvdan.cc/gofumpt@latest`
+rather than falling back to gofmt silently. Use gofmt only where a project has
+deliberately standardised on it.
+
+Prefer a project's own gate (`make check`, `task check`) when one exists, and
+run it rather than a hand-assembled subset. Check what it actually covers before
+trusting it: a project gate commonly omits `-race`, in which case the race check
+is a separate invocation such as `task test:race`.
 
 **The gate only covers the host platform.** `go build`, `go vet` and `go test`
 skip every file behind a build tag, so code under `//go:build js`,
@@ -86,6 +103,14 @@ GOOS=js GOARCH=wasm go vet ./...
 `-race` is not universally available either; `js/wasm` rejects it outright, so
 note which build targets the race gate did not cover rather than implying it
 covered everything.
+
+**`./...` stops at the module boundary.** A repository holding more than one
+`go.mod` leaves every sibling module untested by a run from the root, and the
+output gives no hint that it skipped them. Find them first:
+
+```bash
+find . -name go.mod -not -path './vendor/*'
+```
 
 For deeper analysis, run the checkers bundled with this skill. Each takes the
 project directory as its first argument and defaults to `.`, so pass the target
@@ -219,6 +244,17 @@ clients behave differently for no visible reason.
 - Prefer synchronous APIs
 - Use `chan struct{}` for signals
 - Close channels from the sender only
+
+**Read a dependency's dispatch defaults before designing around them.** A
+library that looks event-driven may run a single worker and call handlers
+synchronously, which serialises everything downstream of it and makes control
+commands undeliverable while a handler is busy. That failure looks like a
+working design right up until it matters. Confirm from the source rather than
+the README:
+
+```bash
+go list -m -f '{{.Dir}}' github.com/some/dep
+```
 
 ```go
 // Explicit lifecycle: the caller can wait, and the exit condition is visible.
