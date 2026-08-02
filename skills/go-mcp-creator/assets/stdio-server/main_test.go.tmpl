@@ -40,7 +40,7 @@ func TestGreetToolEndToEnd(t *testing.T) {
 
 	res, err := clientSession.CallTool(ctx, &mcp.CallToolParams{
 		Name:      "greet",
-		Arguments: map[string]any{"name": "Sam"},
+		Arguments: map[string]any{"name": "World"},
 	})
 	if err != nil {
 		t.Fatalf("call tool: %v", err)
@@ -56,7 +56,7 @@ func TestGreetToolEndToEnd(t *testing.T) {
 	if !ok {
 		t.Fatalf("unexpected content type %T", res.Content[0])
 	}
-	if !strings.Contains(text.Text, "Sam") {
+	if !strings.Contains(text.Text, "World") {
 		t.Fatalf("unexpected tool text: %q", text.Text)
 	}
 }
