@@ -22,8 +22,10 @@ lint findings; `golangci-lint` covers authoring the config that produces them.
 
 ## Bundled MCP servers
 
-`go-workspace`, at `mcp-servers/go-workspace`. Every tool accepts an optional
-`root` path, so inspection can target the caller's repository explicitly.
+`go-workspace`, at `mcp-servers/go-workspace`. It has two groups of tools.
+
+**Local workspace.** Every tool accepts an optional `root` path, so inspection
+can target the caller's repository explicitly.
 
 | Tool | Does |
 | --- | --- |
@@ -38,42 +40,107 @@ lint findings; `golangci-lint` covers authoring the config that produces them.
 | `module_dependency_graph` | Module dependency graph |
 | `run_tests_for_package` | **Runs `go test`, which executes code from the target repository** |
 
+**pkg.go.dev.** Read-only wrappers over the [pkg.go.dev API](https://pkg.go.dev/v1/api)
+(`https://pkg.go.dev/v1`). They need network access and no credentials.
+
+| Tool | Does |
+| --- | --- |
+| `pkgsite_search` | Search packages, or symbols by name |
+| `pkgsite_package` | Package metadata at a version, optionally docs and imports |
+| `pkgsite_module` | Module metadata, `go.mod` contents, optionally README |
+| `pkgsite_versions` | All versions, with deprecation and retraction status |
+| `pkgsite_packages` | Packages in a module |
+| `pkgsite_symbols` | Exported symbols of a package |
+| `pkgsite_imported_by` | Importers outside the module |
+| `pkgsite_vulns` | Known vulnerabilities and fixed versions |
+
+List tools take `limit` (default 20, max 100), `token` for the next page, and
+`filter`, a boolean Go expression over the item's fields such as
+`kind == "Type"`. Set `PKGSITE_API_URL` to point them at another pkgsite
+instance. The API allows 45 requests per second per IP block.
+
 `run_tests_for_package` is the one to be deliberate about. Running a project's
 tests runs that project's code, so approve it only for repositories you trust.
 Note that `.claude/settings.local.json` in this repo pre-approves it and sets
 `enableAllProjectMcpServers`, which suppresses the prompt while working here.
 That file is untracked and does not ship.
 
-The server is started with `go run`, so it compiles on each start and needs a Go
-toolchain plus a warm module cache or network on first use. That is the price of
-staying platform independent rather than shipping a prebuilt binary.
+Prebuilt binaries ship in `mcp-servers/go-workspace/bin/` for linux and darwin
+(amd64, arm64) and windows (amd64). `run.sh` picks the one for the host and falls
+back to `go run` only where none exists, which needs a Go toolchain and network
+on first start. On Windows it runs through Git Bash's `sh`.
 
-## Installing
+**After changing the server, run `mcp-servers/go-workspace/build.sh` and commit
+the binaries with the source.** The plugin runs whatever is in `bin/`, so stale
+binaries silently serve old behaviour.
 
-### Claude Code
+## Installation
 
-```bash
-claude --plugin-dir /path/to/go-agent-skills
+The plugin updates itself and includes the MCP server. Copying the skill
+directories gives you editable files that you update by hand, without the server.
+Pick one per agent: installing both gives you every skill twice.
+
+<details open>
+<summary><strong>Claude Code</strong> (plugin, includes the MCP server)</summary>
+
+In Claude Code:
+
+```
+/plugin install go-dev-toolkit --marketplace samcharles93/go-agent-skills
 ```
 
-The manifest is `.claude-plugin/plugin.json`. The MCP server resolves through
-`${CLAUDE_PLUGIN_ROOT}`, so it works regardless of the working directory.
+Or from a shell:
 
-### Pi
+```bash
+claude plugin marketplace add samcharles93/go-agent-skills
+claude plugin install go-dev-toolkit@samcharles93
+```
 
-Pi discovers any directory containing a `SKILL.md` under `~/.agents/skills/`.
-Symlink rather than copy, so there is only ever one copy on disk:
+Update with `claude plugin marketplace update samcharles93`. The `go-workspace`
+server starts from a prebuilt binary, so it needs no Go toolchain.
+
+</details>
+
+<details>
+<summary><strong>Any other agent, or editable files</strong> (skills only, manual updates)</summary>
+
+```bash
+npx skills@latest add samcharles93/go-agent-skills -a <agent>  # cursor, codex, opencode, pi, ...; omit -a to choose
+```
+
+Update with `npx skills@latest update`. To use the MCP server with another
+agent, register `sh <clone>/mcp-servers/go-workspace/run.sh` as a stdio server.
+
+</details>
+
+<details>
+<summary><strong>From a local clone</strong> (development)</summary>
+
+```bash
+git clone https://github.com/samcharles93/go-agent-skills
+claude --plugin-dir ./go-agent-skills
+```
+
+For Pi, symlink rather than copy so there is only one copy on disk:
 
 ```bash
 for s in go-development golangci-lint go-ldap go-mcp-creator huma-api-builder; do
-  ln -sfn "$PWD/skills/$s" "$HOME/.agents/skills/$s"
+  ln -sfn "$PWD/go-agent-skills/skills/$s" "$HOME/.agents/skills/$s"
 done
 ```
 
-Pi can also read the directory directly by adding it to the `skills` array in
-`~/.pi/agent/settings.json`. Use one mechanism, not both: Pi warns on name
-collisions across locations and the first match wins, which makes duplicate
-copies silently ambiguous.
+Pi can instead read the directory from the `skills` array in
+`~/.pi/agent/settings.json`. Use one mechanism: Pi warns on name collisions and
+the first match wins.
+
+</details>
+
+### Requirements
+
+- The skills' quality gate expects `gofumpt`, `golangci-lint`, `staticcheck` and
+  `govulncheck` on `PATH`.
+- The `pkgsite_*` tools need network access to `pkg.go.dev`; no credentials.
+- On Windows the MCP server runs through Git Bash's `sh`.
 
 ## Design rules
 

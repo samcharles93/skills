@@ -1,0 +1,15 @@
+{
+  "name": "samcharles93",
+  "description": "Agent skills and tooling for real Go engineering.",
+  "owner": {
+    "name": "Sam Catlow",
+    "email": "sam@catlow.tech"
+  },
+  "plugins": [
+    {
+      "name": "go-dev-toolkit",
+      "source": "./",
+      "description": "Go development skills plus a go-workspace MCP server for local package discovery and pkg.go.dev lookups."
+    }
+  ]
+}

@@ -1,6 +1,6 @@
 {
   "name": "go-dev-toolkit",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "description": "Claude Code plugin bundling Go development skills and a Go workspace MCP server.",
   "author": {
     "name": "Sam Catlow",
@@ -25,7 +25,7 @@
   "interface": {
     "displayName": "Go Dev Toolkit",
     "shortDescription": "Go coding, API, and MCP workflows",
-    "longDescription": "Bundles curated Go skills for general development and code quality, golangci-lint configuration, HUMA v2 APIs, and MCP servers built with the official Go SDK, plus a go-workspace MCP server for package discovery.",
+    "longDescription": "Bundles curated Go skills for general development and code quality, golangci-lint configuration, HUMA v2 APIs, and MCP servers built with the official Go SDK, plus a go-workspace MCP server for local package discovery and pkg.go.dev lookups (versions, docs, symbols, importers, vulnerabilities).",
     "developerName": "Sam Catlow",
     "category": "Coding",
     "capabilities": [
