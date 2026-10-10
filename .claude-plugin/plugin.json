@@ -6,8 +6,8 @@
     "name": "Sam Catlow",
     "email": "sam@catlow.tech"
   },
-  "homepage": "https://github.com/samcharles93/go-agent-skills",
-  "repository": "https://github.com/samcharles93/go-agent-skills",
+  "homepage": "https://github.com/samcharles93/skills",
+  "repository": "https://github.com/samcharles93/skills",
   "license": "MIT",
   "keywords": [
     "go",
@@ -32,7 +32,7 @@
       "Interactive",
       "Write"
     ],
-    "websiteURL": "https://github.com/samcharles93/go-agent-skills",
+    "websiteURL": "https://github.com/samcharles93/skills",
     "privacyPolicyURL": "",
     "termsOfServiceURL": "",
     "defaultPrompt": [

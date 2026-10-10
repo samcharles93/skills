@@ -1,4 +1,4 @@
-module github.com/samcharles93/go-agent-skills/mcp-servers/go-workspace
+module github.com/samcharles93/skills/mcp-servers/go-workspace
 
 go 1.26.0
 

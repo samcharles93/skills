@@ -86,13 +86,13 @@ Pick one per agent: installing both gives you every skill twice.
 In Claude Code:
 
 ```
-/plugin install go-dev-toolkit --marketplace samcharles93/go-agent-skills
+/plugin install go-dev-toolkit --marketplace samcharles93/skills
 ```
 
 Or from a shell:
 
 ```bash
-claude plugin marketplace add samcharles93/go-agent-skills
+claude plugin marketplace add samcharles93/skills
 claude plugin install go-dev-toolkit@samcharles93
 ```
 
@@ -105,7 +105,7 @@ server starts from a prebuilt binary, so it needs no Go toolchain.
 <summary><strong>Any other agent, or editable files</strong> (skills only, manual updates)</summary>
 
 ```bash
-npx skills@latest add samcharles93/go-agent-skills -a <agent>  # cursor, codex, opencode, pi, ...; omit -a to choose
+npx skills@latest add samcharles93/skills -a <agent>  # cursor, codex, opencode, pi, ...; omit -a to choose
 ```
 
 Update with `npx skills@latest update`. To use the MCP server with another
@@ -117,15 +117,15 @@ agent, register `sh <clone>/mcp-servers/go-workspace/run.sh` as a stdio server.
 <summary><strong>From a local clone</strong> (development)</summary>
 
 ```bash
-git clone https://github.com/samcharles93/go-agent-skills
-claude --plugin-dir ./go-agent-skills
+git clone https://github.com/samcharles93/skills
+claude --plugin-dir ./skills
 ```
 
 For Pi, symlink rather than copy so there is only one copy on disk:
 
 ```bash
 for s in go-development golangci-lint go-ldap go-mcp-creator huma-api-builder; do
-  ln -sfn "$PWD/go-agent-skills/skills/$s" "$HOME/.agents/skills/$s"
+  ln -sfn "$PWD/skills/skills/$s" "$HOME/.agents/skills/$s"
 done
 ```
 
