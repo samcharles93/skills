@@ -8,7 +8,7 @@ description: This skill should be used when the user asks to write, review, refa
 ## Overview
 
 Go development guide combining Effective Go, the Google Style Guide, Uber Go
-Style and modern Go 1.24+ patterns. The process and the gate come first because
+Style and modern Go 1.24-1.27 patterns. The process and the gate come first because
 they apply to every change; the style material below them is reference to consult
 as needed.
 
@@ -152,6 +152,39 @@ Adopting the linter on an existing codebase, splitting findings into
 auto-fixable and judgement-requiring groups, and the per-finding fix patterns
 are in `references/linting.md`.
 
+## Verification and test hygiene
+
+**No test may depend on the network.** `go test ./...` must pass with no external
+service reachable and no credentials present. A test that reaches a live service
+is worse than no test: slow, non-deterministic, and it fails in CI. Gate live
+checks behind an env var with `t.Skip` when unset, or keep them outside the
+suite as a manual step whose real output you report. Prove the suite is offline
+by running it with each dependency's address pointed at a dead endpoint such as
+`http://127.0.0.1:1`. If it still passes, the claim holds.
+
+**A hung test is the finding, not an obstacle.** Do not widen `-test.timeout`, add
+retries, or raise a budget to make a hang disappear; that buries the defect. Read
+the goroutine dump: it names the culprit, where reasoning about it produces
+stories.
+
+**`httptest.Server.Close()` deadlocks** when a handler blocks until the request
+context is cancelled: `Close` waits for outstanding handlers, so the test blocks
+in its own cleanup. Have the handler block on a channel the test owns and close
+it *before* `Close()`.
+
+**Check the module flag.** With `GOFLAGS=-mod=mod` set, any `go build` silently
+rewrites `go.mod`, promoting indirect requirements to direct. Verify dependency
+changes with `-mod=readonly` and diff the manifest against the merge base. A
+legitimate promotion is fine, a moved version is not.
+
+**`go build ./cmd/<name>` writes a `<name>` binary into the working directory.** Gitignore
+it, and check `git status` for other stray build output.
+
+**Verify an HTTP contract against the running router, not the route
+registrations.** Reading nesting from source indentation is unreliable. Probe it:
+a wrong-method request (`PUT`) returns **405** on a registered path and **404** on
+an unregistered one. That needs no fixtures and settles structure decisively.
+
 ## Core Principles
 
 ### Names
@@ -236,6 +269,46 @@ Related: `nil` and empty slices marshal differently, `null` versus `[]`. Two
 implementations of one interface that disagree about which they return will make
 clients behave differently for no visible reason.
 
+### Modern Go
+
+Write for the module's `go` directive and use what it allows; the Go team's
+blog posts at go.dev/blog are the authoritative guide to each feature's intended
+use. Defaults worth knowing:
+
+- Write the plain allocation pattern (`make` with a size hint, `append` from
+  nil, return the slice). Since 1.25-1.26 the compiler keeps small non-escaping
+  backing stores on the stack, so manual tricks rarely pay.
+- Generic methods (1.27) organise code around a type; they never satisfy an
+  interface method.
+- Retire an exported API with `// Deprecated:` plus `//go:fix inline` on a
+  forwarding implementation, and let `go fix` migrate callers.
+- After raising the `go` directive, run `go fix ./...` until it stops changing
+  anything, once per GOOS/GOARCH, and review the diff. See `references/go-fix.md`.
+- For hangs and leaks in running services: `/debug/pprof/goroutineleak` (1.27)
+  and `trace.FlightRecorder` (1.25).
+- SIMD is experimental and churns between releases: read `references/simd.md`
+  before touching `simd` or `simd/archsimd`.
+
+### Dependencies and external APIs
+
+Do not answer "what version", "what does this package export", "is it
+maintained" or "is it vulnerable" from memory. Training data lags real releases
+and API signatures. When the plugin's `go-workspace` MCP server is connected,
+use its `pkgsite_*` tools:
+
+| Question | Tool |
+|---|---|
+| Which package does X? | `pkgsite_search` (`symbol` to search by identifier) |
+| Latest version; retracted or deprecated? | `pkgsite_versions` |
+| Exact exported API at a version | `pkgsite_symbols`, or `pkgsite_package` with `doc: "md"` |
+| Known vulnerabilities and the fix version | `pkgsite_vulns` with `version` |
+| Who depends on it (adoption, change impact) | `pkgsite_imported_by` |
+
+Pass `version` to match the project's `go.mod`, not the latest. An ambiguous
+path errors with the candidate modules; retry with `module` set. Without the
+server, `go list -m -versions <mod>`, `go doc <pkg>@<version>` (1.27) and
+`govulncheck` answer the same questions locally.
+
 ### Concurrency
 
 **Do not communicate by sharing memory; share memory by communicating.**
@@ -272,7 +345,9 @@ Details deliberately kept out of this file:
 | `references/development-process.md` | The full change loop, performance work, concurrency changes, test hygiene |
 | `references/linting.md` | golangci-lint config, adoption on an existing codebase, per-finding fixes, complexity thresholds |
 | `references/testing.md` | Test patterns including table-driven tests, coverage |
-| `references/modern-features.md` | Go 1.22-1.26 idioms: range-over-int, `min`/`max`, `b.Loop()`, `WaitGroup.Go` |
+| `references/modern-features.md` | Go 1.24-1.27: generic methods, generic interfaces, JSON v2, `//go:fix inline`, leak profiles, allocation changes |
+| `references/go-fix.md` | Modernizer workflow: fixed-point runs, per-platform runs, analyzer list, `newexpr` |
+| `references/simd.md` | `simd` and `simd/archsimd`: dispatch, feature checks, 1.26-1.27 renames, gate commands |
 | `references/uber-style.md` | Uber conventions: global var naming, channel sizing, enums, worker lifecycle, atomics |
 | `references/api-design.md` | API surface decisions including functional options |
 | `references/architecture.md` | Project structure |
@@ -297,6 +372,8 @@ Details deliberately kept out of this file:
 - [Google Go Style Decisions](https://google.github.io/styleguide/go/decisions)
 - [Google Go Best Practices](https://google.github.io/styleguide/go/best-practices)
 - [Uber Go Style Guide](https://github.com/uber-go/guide/blob/master/style.md)
+- [The Go Blog](https://go.dev/blog/all): design rationale and usage guidance for each new feature; check it when adopting one
+- [Go release notes](https://go.dev/doc/devel/release)
 
 ## Related Skills
 

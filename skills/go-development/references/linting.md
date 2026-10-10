@@ -9,7 +9,7 @@ destroy it, and both feel reasonable at the time:
 because a linter flagged something inconvenient is deciding what the linter is
 allowed to say. The finding count drops, the code does not improve, and the
 next reader trusts a gate that is no longer checking anything. Fix the code, or
-suppress the single site with a stated reason — never widen the rule set's
+suppress the single site with a stated reason. Never widen the rule set's
 blind spot to cover a category.
 
 **Keeping a gate so noisy it gets ignored.** A rule that fires hundreds of
@@ -161,7 +161,7 @@ golangci-lint run ./... 2>&1 | tail -30    # show-stats prints per-linter counts
 
 Record the total and the per-linter breakdown. This number is the thing being
 driven to zero, so configure `max-issues-per-linter: 0` and
-`max-same-issues: 0` — the defaults truncate output and make the count
+`max-same-issues: 0`; the defaults truncate output and make the count
 untrackable.
 
 ### 2. Split findings by kind
@@ -197,7 +197,7 @@ git checkout -- path/being/edited/elsewhere.go
 ### 4. Fix tests, then production
 
 Test findings are usually mechanical and are worth fixing rather than
-excluding — they are the cheapest possible practice for the gate. Two classes
+excluding: they are the cheapest possible practice for the gate. Two classes
 carry real value:
 
 - **`noctx` in tests**: an HTTP call or subprocess without a context means a
@@ -223,7 +223,7 @@ func postJSON(ctx context.Context, url string, body io.Reader) (*http.Response, 
 
 ### 5. Verify after every batch
 
-Bulk edits — especially scripted ones — break code in ways the linter does not
+Bulk edits (especially scripted ones) break code in ways the linter does not
 see. Run `go build ./... && go vet ./... && go test ./...` after each batch. A
 blanket `_ =` prefix, for instance, silently breaks any call returning more
 than one value.

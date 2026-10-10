@@ -43,7 +43,7 @@ proved nothing. Run it, read the failure, confirm it describes the defect.
 
 ## 4. Prove the fix
 
-Re-run the reproduction: it must now pass. Then prove the test is not vacuous —
+Re-run the reproduction: it must now pass. Then prove the test is not vacuous:
 **mutation-check it**. Temporarily revert the fix (or break the specific line
 the fix touched) and confirm the test fails again.
 
@@ -89,7 +89,7 @@ Before the first change:
    to learn the project's own gate. Use *that* gate, not a generic one.
 2. Run the existing test suite to confirm a clean starting point. Debugging a
    pre-existing failure as if it were newly introduced wastes hours.
-3. Check the module's Go version in `go.mod`. Write in that version's idiom —
+3. Check the module's Go version in `go.mod`. Write in that version's idiom;
    see `modern-features.md`.
 4. Look for repository instructions (`CLAUDE.md`, `AGENTS.md`,
    `CONTRIBUTING.md`) and follow them over general convention.
@@ -99,7 +99,7 @@ Before the first change:
 Performance changes need evidence more than opinion:
 
 1. **Measure first.** Record a baseline with a repeatable harness. Note the
-   commit, machine, and parameters — numbers without those are unfalsifiable.
+   commit, machine, and parameters. Numbers without those are unfalsifiable.
 2. **Attribute before fixing.** Identify which change caused the regression,
    ideally by bisecting with measurements rather than by reading diffs. A
    plausible story is not a cause.
