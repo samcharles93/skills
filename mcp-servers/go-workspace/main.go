@@ -7,7 +7,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-const serverVersion = "v0.1.0"
+const serverVersion = "v0.2.0"
 
 func main() {
 	server := newServer()

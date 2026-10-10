@@ -1,13 +1,8 @@
 {
   "mcpServers": {
     "go-workspace": {
-      "command": "go",
-      "args": [
-        "-C",
-        "${CLAUDE_PLUGIN_ROOT}/mcp-servers/go-workspace",
-        "run",
-        "."
-      ]
+      "command": "sh",
+      "args": ["${CLAUDE_PLUGIN_ROOT}/mcp-servers/go-workspace/run.sh"]
     }
   }
 }

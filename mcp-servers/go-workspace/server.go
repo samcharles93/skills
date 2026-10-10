@@ -61,6 +61,8 @@ func newServer() *mcp.Server {
 		Description: "Return the project's module dependency graph",
 	}, s.handleModuleGraph)
 
+	registerPkgsiteTools(server, newPkgsiteClient())
+
 	return server
 }
 
