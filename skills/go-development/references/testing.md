@@ -76,52 +76,32 @@ go test -tags=integration ./core/...
 ```go
 func TestParseSchedule(t *testing.T) {
     tests := []struct {
-        name     string
-        input    string
-        expected Schedule
-        wantErr  bool
+        name    string
+        input   string
+        want    Schedule
+        wantErr bool
     }{
-        {
-            name:     "every minute",
-            input:    "* * * * *",
-            expected: Schedule{Minute: "*", Hour: "*", Day: "*", Month: "*", Weekday: "*"},
-            wantErr:  false,
-        },
-        {
-            name:     "specific time",
-            input:    "30 9 * * 1-5",
-            expected: Schedule{Minute: "30", Hour: "9", Day: "*", Month: "*", Weekday: "1-5"},
-            wantErr:  false,
-        },
-        {
-            name:    "invalid format",
-            input:   "invalid",
-            wantErr: true,
-        },
-        {
-            name:    "too few fields",
-            input:   "* * *",
-            wantErr: true,
-        },
+        {name: "every minute", input: "* * * * *", want: Schedule{Minute: "*", Hour: "*", Day: "*", Month: "*", Weekday: "*"}},
+        {name: "invalid", input: "invalid", wantErr: true},
     }
 
     for _, tt := range tests {
         t.Run(tt.name, func(t *testing.T) {
             got, err := ParseSchedule(tt.input)
-
             if (err != nil) != tt.wantErr {
                 t.Errorf("ParseSchedule() error = %v, wantErr %v", err, tt.wantErr)
                 return
             }
-
-            if !tt.wantErr && !reflect.DeepEqual(got, tt.expected) {
-                t.Errorf("ParseSchedule() = %v, want %v", got, tt.expected)
+            if !tt.wantErr && !reflect.DeepEqual(got, tt.want) {
+                t.Errorf("ParseSchedule() = %v, want %v", got, tt.want)
             }
         })
     }
 }
 ```
 
+Prefer sentinel errors with `errors.Is` over the `wantErr bool` dance when a
+specific error matters. See `uber-style.md` for the give/want naming variant.
 ### Subtests with Setup/Teardown
 
 ```go
@@ -255,322 +235,85 @@ func TestWithTestify(t *testing.T) {
 }
 ```
 
-## Time Control with FakeClock
+## Time Control in Tests
 
-Testing time-dependent code (schedulers, caches, rate limiters) is notoriously difficult. A Clock interface with FakeClock implementation enables instant, deterministic testing.
+Prefer `testing/synctest` (Go 1.24+, see `modern-features.md`) for timeouts,
+tickers and timers inside the test bubble: fake time advances instantly once
+every goroutine is durably blocked.
 
-### Clock Interface
+For code that takes a `Clock` interface (schedulers, caches, rate limiters),
+inject a small fake instead of sleeping. Keep the interface minimal and add a
+mutex plus timer/ticker registries on the fake:
 
 ```go
-// core/clock.go
-package core
-
-import (
-    "sync"
-    "time"
-)
-
-// Clock abstracts time operations for testability
 type Clock interface {
     Now() time.Time
     NewTicker(d time.Duration) Ticker
     NewTimer(d time.Duration) Timer
-    After(d time.Duration) <-chan time.Time
-    Sleep(d time.Duration)
 }
 
-type Timer interface {
-    C() <-chan time.Time
-    Stop() bool
-    Reset(d time.Duration) bool
-}
-
-type Ticker interface {
-    C() <-chan time.Time
-    Stop()
-}
-
-// RealClock wraps standard time package
-type realClock struct{}
-
-func NewRealClock() Clock { return &realClock{} }
-
-func (c *realClock) Now() time.Time                         { return time.Now() }
-func (c *realClock) NewTicker(d time.Duration) Ticker       { return &realTicker{time.NewTicker(d)} }
-func (c *realClock) NewTimer(d time.Duration) Timer         { return &realTimer{time.NewTimer(d)} }
-func (c *realClock) After(d time.Duration) <-chan time.Time { return time.After(d) }
-func (c *realClock) Sleep(d time.Duration)                  { time.Sleep(d) }
+func (c *FakeClock) Advance(d time.Duration) { /* move now, fire due timers and tickers */ }
 ```
-
-### FakeClock Implementation
-
-```go
-// FakeClock allows instant time control in tests
-type FakeClock struct {
-    mu       sync.RWMutex
-    now      time.Time
-    tickers  []*fakeTicker
-    timers   []*fakeTimer
-    waiters  []waiter
-}
-
-func NewFakeClock(start time.Time) *FakeClock {
-    return &FakeClock{now: start}
-}
-
-func (c *FakeClock) Now() time.Time {
-    c.mu.RLock()
-    defer c.mu.RUnlock()
-    return c.now
-}
-
-// Advance moves time forward, firing any pending timers/tickers
-func (c *FakeClock) Advance(d time.Duration) {
-    c.mu.Lock()
-    defer c.mu.Unlock()
-
-    target := c.now.Add(d)
-    for {
-        earliest := c.findEarliestEvent()
-        if earliest == nil || earliest.After(target) {
-            c.now = target
-            break
-        }
-        c.now = *earliest
-        c.fireTickers()
-        c.fireTimers()
-        c.fireWaiters()
-    }
-}
-
-// Set jumps to a specific time
-func (c *FakeClock) Set(t time.Time) {
-    c.mu.Lock()
-    defer c.mu.Unlock()
-    c.now = t
-}
-```
-
-### Using FakeClock for Scheduler Testing
 
 ```go
 func TestSchedulerExecutesJobsOnTime(t *testing.T) {
-    // Create fake clock starting at a known time
     clock := NewFakeClock(time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC))
-
-    // Inject clock into scheduler
     scheduler := NewScheduler(WithClock(clock))
-
     executed := false
-    scheduler.AddJob("test", "*/5 * * * *", func() {
-        executed = true
-    })
-
+    scheduler.AddJob("test", "*/5 * * * *", func() { executed = true })
     scheduler.Start()
     defer scheduler.Stop()
 
-    // Advance time by 5 minutes - INSTANT, no waiting!
-    clock.Advance(5 * time.Minute)
-
-    // Job should have executed
+    clock.Advance(5 * time.Minute) // instant and deterministic
     assert.True(t, executed)
 }
-
-func TestCacheExpiration(t *testing.T) {
-    clock := NewFakeClock(time.Now())
-    cache := NewCache(WithClock(clock), WithTTL(1*time.Hour))
-
-    cache.Set("key", "value")
-    assert.Equal(t, "value", cache.Get("key"))
-
-    // Advance past TTL - instant!
-    clock.Advance(2 * time.Hour)
-
-    // Cache entry should be expired
-    assert.Nil(t, cache.Get("key"))
-}
 ```
 
-### CronClock for go-cron Compatibility
-
-When using libraries that expect specific timer interfaces (like go-cron):
-
-```go
-// CronClock wraps FakeClock with go-cron Timer interface
-type CronClock struct {
-    *FakeClock
-}
-
-func NewCronClock(start time.Time) *CronClock {
-    return &CronClock{FakeClock: NewFakeClock(start)}
-}
-
-// NewTimer returns a timer compatible with go-cron
-func (c *CronClock) NewTimer(d time.Duration) cron.Timer {
-    return c.FakeClock.NewTimer(d)
-}
-
-// Usage with go-cron scheduler
-func TestCronScheduler(t *testing.T) {
-    clock := NewCronClock(time.Now())
-    c := cron.New(cron.WithClock(clock))
-
-    var runs int
-    c.AddFunc("@every 1m", func() { runs++ })
-    c.Start()
-
-    // Advance 5 minutes instantly
-    clock.Advance(5 * time.Minute)
-
-    assert.Equal(t, 5, runs) // Ran 5 times
-}
-```
-
-### Benefits
-
-| Without FakeClock | With FakeClock |
-|-------------------|----------------|
-| `time.Sleep(5*time.Minute)` | `clock.Advance(5*time.Minute)` |
-| Tests take minutes | Tests take milliseconds |
-| Flaky due to timing | Deterministic |
-| Can't test edge cases | Test any time scenario |
-
+Never `time.Sleep` in a test to wait for something; that is flaky by
+construction. For condition polling see the Eventually pattern below.
 ## Test Helpers
 
 ### Eventually Pattern (Recommended)
 
-The Eventually pattern replaces brittle `time.Sleep`-based synchronization with event-driven waiting. This makes tests faster and more reliable.
-
-**Why not `time.Sleep`?**
-- Too short: flaky tests
-- Too long: slow test suite
-- Fixed delays don't adapt to system load
+Replace brittle `time.Sleep`-based waiting with event-driven polling:
 
 ```go
 // test/testutil/eventually.go
 package testutil
 
-import (
-    "context"
-    "testing"
-    "time"
-)
-
-const (
-    DefaultTimeout  = 5 * time.Second
-    DefaultInterval = 50 * time.Millisecond
-)
-
-type config struct {
-    timeout  time.Duration
-    interval time.Duration
-    message  string
-}
-
-type Option func(*config)
-
-func WithTimeout(d time.Duration) Option {
-    return func(c *config) { c.timeout = d }
-}
-
-func WithInterval(d time.Duration) Option {
-    return func(c *config) { c.interval = d }
-}
-
-func WithMessage(msg string) Option {
-    return func(c *config) { c.message = msg }
-}
-
-// Eventually polls a condition until true or timeout.
-// Replaces time.Sleep with event-driven waiting.
-func Eventually(t testing.TB, condition func() bool, opts ...Option) bool {
+func Eventually(t testing.TB, condition func() bool, timeout, interval time.Duration) bool {
     t.Helper()
-
-    cfg := &config{
-        timeout:  DefaultTimeout,
-        interval: DefaultInterval,
-        message:  "condition was not satisfied",
-    }
-    for _, opt := range opts {
-        opt(cfg)
-    }
-
-    ctx, cancel := context.WithTimeout(context.Background(), cfg.timeout)
-    defer cancel()
-
-    ticker := time.NewTicker(cfg.interval)
-    defer ticker.Stop()
-
-    // Check immediately first
-    if condition() {
-        return true
-    }
-
+    deadline := time.Now().Add(timeout)
     for {
-        select {
-        case <-ctx.Done():
-            t.Errorf("Eventually timed out after %v: %s", cfg.timeout, cfg.message)
-            return false
-        case <-ticker.C:
-            if condition() {
-                return true
-            }
+        if condition() {
+            return true
         }
+        if time.Now().After(deadline) {
+            t.Errorf("Eventually timed out after %v", timeout)
+            return false
+        }
+        time.Sleep(interval)
     }
-}
-
-// EventuallyWithT passes a collector for deferred assertions
-func EventuallyWithT(t testing.TB, condition func(collect *T) bool, opts ...Option) bool {
-    // Similar implementation with assertion collection
-    // See full implementation in production code
 }
 ```
 
-### Using Eventually
+Prefer `testing/synctest` (see Time Control above) when the code under test
+runs inside the bubble; Eventually is for real I/O and goroutines outside it.
 
 ```go
 func TestServerStartup(t *testing.T) {
     server := startServer()
     defer server.Stop()
 
-    // BAD: Fixed delay - too slow or flaky
-    // time.Sleep(2 * time.Second)
-
-    // GOOD: Event-driven - fast and reliable
-    testutil.Eventually(t, func() bool {
-        return server.IsReady()
-    }, testutil.WithTimeout(5*time.Second),
-       testutil.WithMessage("server failed to start"))
-}
-
-func TestJobCompletion(t *testing.T) {
-    job := scheduler.Submit(myJob)
-
-    testutil.Eventually(t, func() bool {
-        return job.Status() == StatusComplete
-    }, testutil.WithTimeout(10*time.Second),
-       testutil.WithInterval(100*time.Millisecond))
-
-    assert.Equal(t, "success", job.Result())
+    // GOOD: event-driven, fast and reliable. Never time.Sleep(2*time.Second) instead.
+    testutil.Eventually(t, server.IsReady, 5*time.Second, 50*time.Millisecond)
 }
 ```
 
-### Legacy Helpers
+### Temp Directories
 
-For simpler cases, these patterns still work:
-
-```go
-// TempDir creates a temp directory and returns cleanup function
-func TempDir(t *testing.T) (string, func()) {
-    t.Helper()
-    dir, err := os.MkdirTemp("", "test-*")
-    if err != nil {
-        t.Fatalf("failed to create temp dir: %v", err)
-    }
-    return dir, func() { os.RemoveAll(dir) }
-}
-```
-
+Use the built-in `t.TempDir()`: it creates the directory and registers cleanup
+with the test automatically. Do not write a `TempDir` helper.
 ### Test Fixtures
 
 ```go
@@ -602,6 +345,9 @@ func LoadFixture(t *testing.T, name string) []byte {
 
 ### Docker-Based Integration Tests
 
+Behind a build tag, against a real daemon; see `docker.md` for the client
+patterns. Skip when the daemon is unreachable:
+
 ```go
 //go:build integration
 
@@ -611,39 +357,45 @@ import (
     "context"
     "testing"
     "time"
+
+    docker "github.com/fsouza/go-dockerclient"
 )
 
 func TestDockerIntegration(t *testing.T) {
-    // Skip if Docker not available
-    client, err := NewOptimizedDockerClientFromEnv()
-    if err != nil {
-        t.Skip("Docker not available:", err)
+    client, err := docker.NewClientFromEnv()
+    if err != nil || client.Ping() != nil {
+        t.Skip("Docker not available")
     }
 
     ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
     defer cancel()
 
-    // Ensure test image exists
-    if err := client.EnsureImage(ctx, "alpine:latest"); err != nil {
-        t.Fatalf("failed to pull image: %v", err)
-    }
-
     t.Run("exec in container", func(t *testing.T) {
-        // Create test container
-        containerID, err := client.RunContainer(ctx, "alpine:latest", []string{"sleep", "60"}, nil)
+        container, err := client.CreateContainer(docker.CreateContainerOptions{
+            Config:     &docker.Config{Image: "alpine:latest", Cmd: []string{"sleep", "60"}},
+            HostConfig: &docker.HostConfig{AutoRemove: true},
+            Context:    ctx,
+        })
         if err != nil {
-            t.Fatalf("failed to create container: %v", err)
+            t.Fatalf("create container: %v", err)
         }
-        defer client.RemoveContainer(ctx, containerID, true)
+        if err := client.StartContainer(container.ID, nil); err != nil {
+            t.Fatalf("start container: %v", err)
+        }
 
-        // Execute command
-        stdout, _, err := client.ExecInContainer(ctx, containerID, []string{"echo", "hello"})
+        exec, err := client.CreateExec(docker.CreateExecOptions{
+            Container: container.ID, Cmd: []string{"echo", "hello"},
+            AttachStdout: true, Context: ctx,
+        })
         if err != nil {
-            t.Fatalf("exec failed: %v", err)
+            t.Fatalf("create exec: %v", err)
         }
-
-        if stdout != "hello\n" {
-            t.Errorf("unexpected output: %q", stdout)
+        var out bytes.Buffer
+        if err := client.StartExec(exec.ID, docker.StartExecOptions{OutputStream: &out, Context: ctx}); err != nil {
+            t.Fatalf("exec: %v", err)
+        }
+        if out.String() != "hello\n" {
+            t.Errorf("unexpected output: %q", out.String())
         }
     })
 }
@@ -723,69 +475,14 @@ func TestParseConfig(t *testing.T) {
 }
 ```
 
-## Fuzz Testing (Go 1.18+)
+## Fuzz Testing
 
-Fuzz testing automatically generates inputs to find edge cases and crashes.
-
-### Basic Fuzz Test
-
-```go
-func FuzzParseSchedule(f *testing.F) {
-    // Seed corpus with known valid inputs
-    f.Add("* * * * *")
-    f.Add("0 0 1 1 *")
-    f.Add("*/5 * * * *")
-    f.Add("0 9 * * MON-FRI")
-
-    f.Fuzz(func(t *testing.T, input string) {
-        // Should not panic on any input
-        result, err := ParseSchedule(input)
-
-        // If no error, result should be usable
-        if err == nil && result != nil {
-            // Additional invariant checks
-            _ = result.Next(time.Now())
-        }
-    })
-}
-```
-
-### Running Fuzz Tests
+See `references/fuzz-testing.md` for patterns, seed corpora and CI setup.
+Quick form:
 
 ```bash
-# Run fuzz test for 30 seconds
-go test -fuzz=FuzzParseSchedule -fuzztime=30s
-
-# Run with specific corpus directory
-go test -fuzz=FuzzParseSchedule -fuzztime=1m -test.fuzzcachedir=./testdata/fuzz
-
-# Run all fuzz tests
-go test -fuzz=. -fuzztime=30s ./...
+go test -fuzz=FuzzParseSchedule -fuzztime=30s ./...
 ```
-
-### CI Configuration for Fuzz Testing
-
-```yaml
-# GitHub Actions
-fuzz-testing:
-  runs-on: ubuntu-latest
-  steps:
-    - uses: actions/checkout@v4
-    - uses: actions/setup-go@v5
-      with:
-        go-version: '1.22'
-    - name: Fuzz Tests
-      run: |
-        go test -fuzz=. -fuzztime=60s ./...
-```
-
-### Best Practices
-
-1. **Seed meaningful inputs**: Start with valid edge cases
-2. **Check invariants**: Verify properties that should always hold
-3. **Never crash**: Parser should never panic on malformed input
-4. **Run in CI**: Short fuzz duration (30-60s) catches regressions
-
 ## Parallel Test Execution
 
 Running tests in parallel dramatically speeds up test suites. Go's testing package supports this natively.
@@ -806,9 +503,8 @@ func TestParseConfig(t *testing.T) {
     }
 
     for _, tt := range tests {
-        tt := tt // Capture range variable (required for parallel subtests)
         t.Run(tt.name, func(t *testing.T) {
-            t.Parallel() // Subtests can also be parallel
+            t.Parallel() // Subtests can also be parallel; Go 1.22+ gives each iteration its own tt
 
             got := ParseConfig(tt.input)
             assert.Equal(t, tt.want, got)
@@ -845,7 +541,6 @@ func TestWithSharedSetup(t *testing.T) {
     }
 
     for _, tt := range tests {
-        tt := tt
         t.Run(tt.name, func(t *testing.T) {
             t.Parallel()
             resp := server.Get(tt.endpoint)
@@ -887,106 +582,16 @@ go test -race -v ./core/...
 
 ### Common Race Patterns and Fixes
 
-**1. Unsynchronized map access:**
+1. **Unsynchronized map access.** Guard the map with `sync.RWMutex`. `RLock`
+   is only safe when the entire operation is read-only; any write, including
+   timestamps or counters, needs a full `Lock`.
+2. **Loop variable capture.** Not a race since Go 1.22: each iteration has its
+   own variable, so `for i := range n { go func() { use(i) }() }` needs no
+   `i := i` shadow. On pre-1.22 semantics, pass the variable as an argument.
+3. **Check-then-act.** Make the check and update one atomic operation under a
+   single lock, e.g. a `GetOrSet(key, compute)` method.
 
-```go
-// BAD: Race condition
-type Cache struct {
-    data map[string]string
-}
-
-func (c *Cache) Set(k, v string) { c.data[k] = v } // Race!
-func (c *Cache) Get(k string) string { return c.data[k] } // Race!
-
-// GOOD: Protected with mutex
-type Cache struct {
-    mu   sync.RWMutex
-    data map[string]string
-}
-
-func (c *Cache) Set(k, v string) {
-    c.mu.Lock()
-    defer c.mu.Unlock()
-    c.data[k] = v
-}
-
-func (c *Cache) Get(k string) string {
-    c.mu.RLock()
-    defer c.mu.RUnlock()
-    return c.data[k]
-}
-```
-
-**2. Goroutine capturing loop variable:**
-
-```go
-// BAD: All goroutines see final value of i
-for i := 0; i < 10; i++ {
-    go func() {
-        fmt.Println(i) // Race! Prints 10 ten times
-    }()
-}
-
-// GOOD: Capture variable
-for i := 0; i < 10; i++ {
-    i := i // Shadow the variable
-    go func() {
-        fmt.Println(i) // Safe: each goroutine has its own copy
-    }()
-}
-
-// GOOD: Pass as argument
-for i := 0; i < 10; i++ {
-    go func(n int) {
-        fmt.Println(n)
-    }(i)
-}
-```
-
-**3. Check-then-act pattern:**
-
-```go
-// BAD: Race between check and update
-if cache.Get(key) == nil {
-    cache.Set(key, compute()) // Another goroutine might have set it!
-}
-
-// GOOD: Atomic operation
-value := cache.GetOrSet(key, func() string {
-    return compute()
-})
-```
-
-**4. RLock vs Lock - Know When to Upgrade:**
-
-```go
-// BAD: RLock used when writing to a field
-func (c *Cache) Get(key string) ([]byte, bool) {
-    c.mu.RLock()
-    defer c.mu.RUnlock()
-
-    entry, ok := c.entries[key]
-    if ok {
-        entry.accessedAt = time.Now()  // RACE! Writing under RLock
-    }
-    return entry.data, ok
-}
-
-// GOOD: Use Lock when any write occurs
-func (c *Cache) Get(key string) ([]byte, bool) {
-    c.mu.Lock()  // Full lock needed for accessedAt update
-    defer c.mu.Unlock()
-
-    entry, ok := c.entries[key]
-    if ok {
-        entry.accessedAt = time.Now()  // Safe
-    }
-    return entry.data, ok
-}
-```
-
-**Rule**: RLock is ONLY safe when the entire operation is read-only. Any write (including updating timestamps, counters, or "metadata") requires a full Lock.
-
+Run `go test -race ./...` on every change touching goroutines or shared state.
 ### CI Integration
 
 ```yaml
@@ -1001,114 +606,10 @@ test:
 
 ## Mutation Testing
 
-Mutation testing validates test quality by introducing bugs and checking if tests catch them.
-
-### Using gremlins (Recommended)
-
-[gremlins](https://github.com/go-gremlins/gremlins) is a modern, fast mutation testing tool for Go.
-
-```bash
-# Install
-go install github.com/go-gremlins/gremlins/cmd/gremlins@latest
-
-# Run mutation testing
-gremlins unleash ./...
-
-# With configuration file
-gremlins unleash --config .gremlins.yaml ./...
-```
-
-### Configuration (.gremlins.yaml)
-
-```yaml
-# .gremlins.yaml
-timeout: 10        # Seconds per mutation test
-workers: 4         # Parallel workers
-threshold: 0.7     # Minimum mutation score (0.0-1.0)
-exclude:
-  - "**/*_test.go"
-  - "**/testdata/**"
-  - "**/mock/**"
-```
-
-### CI Integration
-
-```yaml
-# GitHub Actions
-mutation-testing:
-  runs-on: ubuntu-latest
-  steps:
-    - uses: actions/checkout@v4
-    - uses: actions/setup-go@v5
-    - name: Install gremlins
-      run: go install github.com/go-gremlins/gremlins/cmd/gremlins@latest
-    - name: Run mutation tests
-      run: gremlins unleash --threshold 0.7 ./...
-```
-
-### Alternative: go-mutesting
-
-```bash
-# Install
-go install github.com/zimmski/go-mutesting/cmd/go-mutesting@latest
-
-# Run mutation testing
-go-mutesting ./...
-
-# With specific mutators
-go-mutesting --mutator=branch ./...
-```
-
-### Common Mutators
-
-| Mutator | What It Does | Example |
-|---------|-------------|---------|
-| `branch` | Removes branches | `if x > 0` → ` ` |
-| `expression` | Modifies operators | `a + b` → `a - b` |
-| `statement` | Removes statements | Deletes return statements |
-
-### Interpreting Results
-
-```
-Mutation Score: 85% (68/80 mutations killed)
-
-Survived mutations:
-  - parser.go:45 removed branch (if err != nil)
-  - validate.go:78 changed == to !=
-```
-
-**Target**: 70%+ mutation score indicates robust tests. 80%+ is excellent.
-
-### Boundary Condition Testing
-
-Mutation testing often reveals missing boundary tests:
-
-```go
-// Original code
-func isValidMinute(m int) bool {
-    return m >= 0 && m <= 59
-}
-
-// Mutations that might survive:
-// - m >= 0 → m > 0    (boundary at 0)
-// - m <= 59 → m < 59  (boundary at 59)
-
-// Tests needed to kill mutations:
-func TestIsValidMinute(t *testing.T) {
-    tests := []struct {
-        input int
-        want  bool
-    }{
-        {-1, false},   // Below range
-        {0, true},     // Lower boundary (kills >= → >)
-        {30, true},    // Middle
-        {59, true},    // Upper boundary (kills <= → <)
-        {60, false},   // Above range
-    }
-    // ...
-}
-```
-
+See `references/mutation-testing.md` for tooling (gremlins), CI setup and reading
+scores. Mutation testing often exposes missing boundary tests, so include the
+edges of every range (0 and 59 for minutes, empty and max for lengths) in
+table-driven tests.
 ## Common Gotchas
 
 ### Integer to String Conversion
@@ -1166,87 +667,8 @@ func TestSomething(t *testing.T) {
 }
 ```
 
-### Fuzz Target Naming
-
-Fuzz targets must match the `Fuzz*` pattern exactly:
-
-```go
-// BAD - Target name doesn't match function
-//go:build ignore
-
-func FuzzParser(f *testing.F) {
-    f.Fuzz(func(t *testing.T, data []byte) {
-        // ...
-    })
-}
-
-// GOOD - Target exists and matches name in fuzz command
-// go test -fuzz=FuzzParser
-func FuzzParser(f *testing.F) {
-    f.Fuzz(func(t *testing.T, data []byte) {
-        // ...
-    })
-}
-```
-
-### Always Check app.Test() Errors
-
-When testing Fiber/Echo handlers, always check the error:
-
-```go
-// BAD - Ignores potential test setup errors
-resp, _ := app.Test(req)
-
-// GOOD - Fails test if request setup fails
-resp, err := app.Test(req)
-require.NoError(t, err)
-defer resp.Body.Close()
-```
-
 ## Makefile Integration
 
-```makefile
-.PHONY: test test-race test-cover test-integration test-e2e test-fuzz test-mutation test-all
-
-# Fast unit tests (default)
-test:
-	go test -v ./...
-
-# Unit tests with race detector (CI default)
-test-race:
-	go test -race -v ./...
-
-# Parallel tests with higher parallelism
-test-parallel:
-	go test -v -parallel 8 ./...
-
-# Coverage report
-test-cover:
-	go test -coverprofile=coverage.out ./...
-	go tool cover -html=coverage.out -o coverage.html
-	@echo "Coverage report: coverage.html"
-
-# Integration tests (require Docker, etc.)
-test-integration:
-	go test -v -tags=integration ./...
-
-# E2E tests (complete system)
-test-e2e:
-	go test -v -tags=e2e ./...
-
-# Fuzz testing (30 seconds per target)
-test-fuzz:
-	go test -fuzz=. -fuzztime=30s ./...
-
-# Mutation testing with gremlins (recommended)
-test-mutation:
-	gremlins unleash --threshold 0.7 ./...
-
-# Legacy mutation testing with go-mutesting
-test-mutation-legacy:
-	go-mutesting ./...
-
-# Full test suite with all quality checks
-test-all:
-	go test -v -tags="integration e2e" -race -parallel 4 ./...
-```
+The standard `make test`, `make test-race`, `make fuzz` and related targets are
+defined in `references/makefile.md`; use its template rather than inventing
+per-project variants.

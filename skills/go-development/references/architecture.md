@@ -444,58 +444,9 @@ func (h *Handler) TriggerJob(w http.ResponseWriter, r *http.Request) {
 }
 ```
 
-## Error Handling Patterns
+## Error Handling
 
-### Domain Errors
-
-```go
-// Custom error types
-type JobNotFoundError struct {
-    Name string
-}
-
-func (e *JobNotFoundError) Error() string {
-    return fmt.Sprintf("job not found: %s", e.Name)
-}
-
-type ValidationError struct {
-    Field   string
-    Message string
-}
-
-func (e *ValidationError) Error() string {
-    return fmt.Sprintf("validation failed for %s: %s", e.Field, e.Message)
-}
-
-// Error checking
-func HandleJob(name string) error {
-    job, err := scheduler.GetJob(name)
-    if err != nil {
-        var notFound *JobNotFoundError
-        if errors.As(err, &notFound) {
-            // Handle not found
-            return nil
-        }
-        return err
-    }
-    return job.Run(context.Background())
-}
-```
-
-### Sentinel Errors
-
-```go
-var (
-    ErrJobNotFound     = errors.New("job not found")
-    ErrInvalidSchedule = errors.New("invalid schedule expression")
-    ErrContainerDied   = errors.New("container died unexpectedly")
-)
-
-func GetJob(name string) (Job, error) {
-    job, ok := jobs[name]
-    if !ok {
-        return nil, fmt.Errorf("%w: %s", ErrJobNotFound, name)
-    }
-    return job, nil
-}
-```
+Domain error types, sentinels and `errors.Is`/`errors.As` inspection are core
+principles in SKILL.md, with the typed-error pattern in `api-design.md`. Keep
+domain errors in the domain package so callers can match them with
+`errors.As` across package boundaries.

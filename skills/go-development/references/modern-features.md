@@ -70,9 +70,17 @@ f := List[int].Map[int] // method expression, must be instantiated
 `math/rand/v2` now has `(*Rand).N[Int intType](Int) Int`.
 
 **Restrictions:**
-- Interface methods still cannot declare type parameters.
+- Interface methods still cannot declare type parameters, and there is no plan
+  to allow it: packages compile separately, so the package declaring a type
+  cannot know which instantiations of its generic method another package will
+  call through an interface. The compiler would have to instantiate the method
+  for every possible type argument; boxing the type arguments instead would
+  share one implementation but adds indirect-call overhead even for direct
+  calls.
 - A generic method never satisfies an interface method. Implementation is
   decided by the type's method set, and `T.M[P]` is not `M()`.
+- A generic method must be instantiated, explicitly or implicitly, before it
+  is called or converted to a function.
 
 **When to use:** to organise operations around a type (chainable transforms on a
 container) instead of a package-level generic function. Do not reach for it to
@@ -358,14 +366,43 @@ func TestService(t *testing.T) {
 ### JSON v2 (1.25 experiment, 1.27 GA)
 
 In 1.27 `encoding/json/v2` and `encoding/json/jsontext` are standard packages
-(no `GOEXPERIMENT`), and `encoding/json` is reimplemented on top of v2. v1
-behaviour is preserved but error *text* can differ, so tests asserting on
-`err.Error()` strings may break; `GOEXPERIMENT=nojsonv2` restores the old code
-while you fix them. v2 rejects invalid UTF-8 and duplicate object names by
-default. Changes from the experiment: `inline` tag option renamed `embed`;
-`format` and `unknown` options, `DiscardUnknownMembers` and `SkipFunc` removed.
+(no `GOEXPERIMENT`), and `encoding/json` is reimplemented on top of v2, so the
+two versions interoperate in both directions: v2 honours v1 `MarshalJSON`
+methods and v1 honours v2 `MarshalJSONTo` methods. v1 behaviour is preserved
+but error *text* can differ, so tests asserting on `err.Error()` strings may
+break; `GOEXPERIMENT=nojsonv2` restores the old code while you fix them.
+Changes from the experiment: `inline` tag option renamed `embed`; `format` and
+`unknown` options, `DiscardUnknownMembers` and `SkipFunc` removed.
 
-Custom marshalers without wrapper types:
+`jsontext` is the syntactic layer underneath: truly streaming `Encoder` and
+`Decoder` types with `WriteValue`/`WriteToken` and `ReadValue`/`ReadToken`, a
+`Value` type (a `[]byte`, now an alias of v1 `RawMessage`), an
+allocation-free `Token` and a `Kind`. It does no reflection and keeps
+"encode/decode" (syntax) separate from "marshal/unmarshal" (semantics).
+
+Every v2 entry point takes options as a first-class argument:
+
+```go
+json.Marshal(in, opts...)             // returns []byte
+json.Unmarshal(in, out, opts...)
+json.MarshalWrite(w, in, opts...)     // straight to an io.Writer
+json.UnmarshalRead(r, out, opts...)   // straight from an io.Reader
+json.MarshalEncode(e, in, opts...)    // into a *jsontext.Encoder
+json.UnmarshalDecode(d, out, opts...) // from a *jsontext.Decoder
+```
+
+**Type-specified customization:** v1's `Marshaler`/`Unmarshaler` still work,
+plus the streaming `MarshalerTo`/`UnmarshalerFrom` interfaces,
+`MarshalJSONTo(*jsontext.Encoder) error` and
+`UnmarshalJSONFrom(*jsontext.Decoder) error`. The `To`/`From` forms receive
+the caller's options through the `Options` accessor on the encoder or decoder,
+and they avoid the double parse that v1's `UnmarshalJSON` forces over the
+whole value.
+
+**Caller-specified customization:** `json.WithMarshalers` and
+`json.WithUnmarshalers` take `json.MarshalFunc`, `json.MarshalToFunc`,
+`json.UnmarshalFunc` and `json.UnmarshalFromFunc` to override any type, and
+caller-specified functions win over type-defined methods:
 
 ```go
 import "encoding/json/v2"
@@ -381,6 +418,27 @@ boolMarshaler := json.MarshalToFunc(func(enc *jsontext.Encoder, val bool) error 
 
 data, _ := json.Marshal(true, json.WithMarshalers(boolMarshaler))
 ```
+
+**Behaviour differences from v1** (each can be configured back to v1
+semantics with an option):
+
+- Rejects invalid UTF-8 and duplicate object names by default (relax with
+  `jsontext.AllowDuplicateNames(true)`).
+- Marshals a nil slice or map as `[]` or `{}`, not `null`.
+- Matches JSON member names to struct fields case-sensitively.
+- Redefines `omitempty` to omit any "empty" JSON value: `null`, `""`, `[]`, `{}`.
+- Errors on `time.Duration`, which has no default representation, unless the
+  caller supplies one.
+
+**Migration:** start from `json.DefaultOptionsV2()` or
+`jsonv1.DefaultOptionsV1()` and override individual behaviours, for example
+`json.Marshal(v, json.DefaultOptionsV2(), jsontext.AllowDuplicateNames(true))`.
+See the `encoding/json/v2` Migration Guide.
+
+**Performance:** v2 `Unmarshal` is up to about 10x faster than v1 and `Marshal`
+is at parity. Types with recursive `MarshalJSON`/`UnmarshalJSON` benefit most
+from moving to the `To`/`From` interfaces: v1 re-parses the whole value on
+every call, so recursive unmarshaling goes quadratic.
 
 ### Small Library Additions (1.27+)
 
@@ -791,89 +849,12 @@ for m := range typ.Methods() {
 
 ### Go 1.27 Adoption
 1. Run `go fix ./...` (note the `waitgroupgo` rename in scripts)
-2. Re-run tests that assert on `encoding/json` error strings
+2. Re-run tests against `encoding/json` (now v2 underneath): error strings can
+   differ, nil slices and maps marshal as `[]`/`{}` not `null`, member matching
+   is case-sensitive, `omitempty` also omits `null`/`""`/`[]`/`{}`, and
+   `time.Duration` errors unless configured
 3. Fix new vet findings: `stdversion`, `%w` with a pointer to a value-receiver error
 4. Replace third-party UUID packages with `uuid` in new code
 5. Scrape `/debug/pprof/goroutineleak` periodically in staging
 6. `go mod tidy` collapses `require` blocks to one direct, one indirect
 7. Re-run `gofumpt`/`gofmt`: alignment fixes may produce whitespace diffs
-
-## Best Practices
-
-### Error Handling
-```go
-// Prefer errors.AsType for type-safe error inspection
-if appErr, ok := errors.AsType[*AppError](err); ok {
-    return handleAppError(appErr)
-}
-
-// Use fmt.Errorf for error wrapping (zero-allocation in 1.26+)
-return fmt.Errorf("failed to process request: %w", err)
-```
-
-### Concurrency
-```go
-// Use WaitGroup.Go for simple parallel execution
-var wg sync.WaitGroup
-for _, task := range tasks {
-    wg.Go(func() { processTask(task) })
-}
-wg.Wait()
-
-// Monitor goroutines in production: scrape /debug/pprof/goroutineleak
-```
-
-### Testing
-```go
-// Use fake time for timeout tests
-func TestOperation(t *testing.T) {
-    synctest.Test(t, func(t *testing.T) {
-        ctx, cancel := context.WithTimeout(context.Background(), time.Hour)
-        defer cancel()
-        // Test completes instantly, not in 1 hour
-    })
-}
-
-// Add attributes for CI integration
-func TestCriticalPath(t *testing.T) {
-    t.Attr("criticality", "high")
-    t.Attr("component", "payment")
-}
-
-// Use artifacts for debugging
-func TestComplex(t *testing.T) {
-    dir := t.ArtifactDir()
-    defer writeDebugLog(dir, logs)
-}
-```
-
-### Performance
-```go
-// Pre-size maps for known capacity
-cache := make(map[string]CachedData, expectedSize)
-
-// Use weak pointers for cache entries
-type Cache struct {
-    items map[string]weak.Pointer[Data]
-}
-
-// Enable container-aware GOMAXPROCS (automatic in 1.25+)
-// Respect cgroup CPU limits in Kubernetes
-```
-
-### Security
-```go
-// Use os.Root for directory-scoped operations
-userRoot, _ := os.OpenRoot(userDir)
-content, _ := userRoot.ReadFile(filename) // Safe from path traversal
-
-// Add CSRF protection to API handlers
-csrf := http.NewCrossOriginProtection()
-srv.Handler = csrf.Handler(apiMux)
-
-// Use secret.Do for sensitive data
-secret.Do(func() {
-    processCredentials(decryptedCreds)
-    // Credentials zeroed on exit
-})
-```

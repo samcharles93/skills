@@ -2,145 +2,67 @@
 
 ## Retry Logic
 
-### Basic Exponential Backoff
+### Exponential Backoff with Jitter
 
 ```go
 type RetryConfig struct {
-    MaxAttempts   int
-    InitialDelay  time.Duration
-    MaxDelay      time.Duration
-    BackoffFactor float64
-    Jitter        bool
+    MaxAttempts  int           // default 3
+    InitialDelay time.Duration // default 100ms
+    MaxDelay     time.Duration // default 30s
+    Factor       float64       // default 2.0
+    OnRetry      func(attempt int, err error, nextDelay time.Duration) // optional, for logs/metrics
 }
 
-func DefaultRetryConfig() RetryConfig {
-    return RetryConfig{
-        MaxAttempts:   3,
-        InitialDelay:  100 * time.Millisecond,
-        MaxDelay:      30 * time.Second,
-        BackoffFactor: 2.0,
-        Jitter:        true,
-    }
-}
-
-func WithRetry(ctx context.Context, cfg RetryConfig, fn func() error) error {
+func WithRetry(ctx context.Context, cfg RetryConfig, fn func(context.Context) error) (err error) {
     delay := cfg.InitialDelay
-
     for attempt := 1; attempt <= cfg.MaxAttempts; attempt++ {
-        err := fn()
-        if err == nil {
+        if err = fn(ctx); err == nil {
             return nil
         }
-
-        // Don't retry on context cancellation
-        if ctx.Err() != nil {
-            return ctx.Err()
-        }
-
-        // Check if error is retryable
-        if !isRetryable(err) {
+        if errors.Is(err, context.Canceled) || !isRetryable(err) {
             return err
         }
-
-        if attempt < cfg.MaxAttempts {
-            actualDelay := delay
-            if cfg.Jitter {
-                actualDelay = addJitter(delay)
-            }
-
-            select {
-            case <-time.After(actualDelay):
-            case <-ctx.Done():
-                return ctx.Err()
-            }
-
-            delay = time.Duration(float64(delay) * cfg.BackoffFactor)
-            if delay > cfg.MaxDelay {
-                delay = cfg.MaxDelay
-            }
+        if attempt == cfg.MaxAttempts {
+            break
         }
+        if cfg.OnRetry != nil {
+            cfg.OnRetry(attempt, err, delay)
+        }
+        select {
+        case <-time.After(delay + time.Duration(rand.Int64N(int64(delay/2)))): // jitter
+        case <-ctx.Done():
+            return ctx.Err()
+        }
+        delay = min(time.Duration(float64(delay)*cfg.Factor), cfg.MaxDelay)
     }
-
-    return fmt.Errorf("operation failed after %d attempts", cfg.MaxAttempts)
+    return fmt.Errorf("after %d attempts: %w", cfg.MaxAttempts, err)
 }
 
-func addJitter(d time.Duration) time.Duration {
-    jitter := time.Duration(rand.Int63n(int64(d / 2)))
-    return d + jitter
-}
-
+// isRetryable keeps an explicit list. Defaulting to true is how non-idempotent
+// calls get duplicated on unknown errors. net.Error.Temporary is deprecated;
+// Timeout is the reliable signal.
 func isRetryable(err error) bool {
-    // Network errors, timeouts are retryable
     var netErr net.Error
-    if errors.As(err, &netErr) {
-        return netErr.Temporary() || netErr.Timeout()
-    }
-
-    // Context cancellation is not retryable
-    if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-        return false
-    }
-
-    return true
+    return errors.As(err, &netErr) && netErr.Timeout()
 }
 ```
-
-### Retry with Callback
-
-```go
-type RetryCallback func(attempt int, err error, nextDelay time.Duration)
-
-func WithRetryCallback(ctx context.Context, cfg RetryConfig, fn func() error, cb RetryCallback) error {
-    delay := cfg.InitialDelay
-
-    for attempt := 1; attempt <= cfg.MaxAttempts; attempt++ {
-        err := fn()
-        if err == nil {
-            return nil
-        }
-
-        if cb != nil {
-            cb(attempt, err, delay)
-        }
-
-        if attempt < cfg.MaxAttempts {
-            select {
-            case <-time.After(delay):
-            case <-ctx.Done():
-                return ctx.Err()
-            }
-            delay = time.Duration(float64(delay) * cfg.BackoffFactor)
-        }
-    }
-
-    return fmt.Errorf("failed after %d attempts", cfg.MaxAttempts)
-}
-```
-
 ## Graceful Shutdown
 
-### Complete Shutdown Handler
+### Shutdown Handler
 
 ```go
 type ShutdownManager struct {
-    ctx        context.Context
-    cancel     context.CancelFunc
-    wg         sync.WaitGroup
-    timeout    time.Duration
-    cleanups   []func(context.Context) error
-    mu         sync.Mutex
-    shutdownCh chan struct{}
+    ctx      context.Context
+    cancel   context.CancelFunc
+    wg       sync.WaitGroup
+    timeout  time.Duration
+    mu       sync.Mutex
+    cleanups []func(context.Context) error
 }
 
 func NewShutdownManager(timeout time.Duration) *ShutdownManager {
     ctx, cancel := context.WithCancel(context.Background())
-    return &ShutdownManager{
-        ctx:        ctx,
-        cancel:     cancel,
-        timeout:    timeout,
-        cleanups:   make([]func(context.Context) error, 0),
-        shutdownCh: make(chan struct{}),
-    }
+    return &ShutdownManager{ctx: ctx, cancel: cancel, timeout: timeout}
 }
 
 func (sm *ShutdownManager) RegisterCleanup(fn func(context.Context) error) {
@@ -149,337 +71,139 @@ func (sm *ShutdownManager) RegisterCleanup(fn func(context.Context) error) {
     sm.cleanups = append(sm.cleanups, fn)
 }
 
-func (sm *ShutdownManager) Context() context.Context {
-    return sm.ctx
-}
-
-func (sm *ShutdownManager) AddWorker() {
-    sm.wg.Add(1)
-}
-
-func (sm *ShutdownManager) WorkerDone() {
-    sm.wg.Done()
-}
-
-func (sm *ShutdownManager) WaitForSignal() {
-    sigChan := make(chan os.Signal, 1)
-    signal.Notify(sigChan, syscall.SIGTERM, syscall.SIGINT, syscall.SIGHUP)
-
-    select {
-    case sig := <-sigChan:
-        log.WithField("signal", sig).Info("Received shutdown signal")
-    case <-sm.shutdownCh:
-        log.Info("Shutdown requested programmatically")
-    }
-
-    sm.Shutdown()
-}
-
+// Shutdown cancels the context, waits up to timeout for workers, then runs
+// cleanups in reverse registration order.
 func (sm *ShutdownManager) Shutdown() {
-    log.Info("Starting graceful shutdown")
-
-    // Cancel context to stop accepting new work
     sm.cancel()
-
-    // Create timeout context for cleanup
-    shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), sm.timeout)
-    defer shutdownCancel()
-
-    // Wait for workers with timeout
-    workersDone := make(chan struct{})
-    go func() {
-        sm.wg.Wait()
-        close(workersDone)
-    }()
-
+    done := make(chan struct{})
+    go func() { sm.wg.Wait(); close(done) }()
+    timer := time.NewTimer(sm.timeout)
+    defer timer.Stop()
     select {
-    case <-workersDone:
-        log.Info("All workers finished")
-    case <-shutdownCtx.Done():
-        log.Warn("Timeout waiting for workers")
+    case <-done:
+    case <-timer.C:
     }
-
-    // Run cleanup functions
+    ctx, cancel := context.WithTimeout(context.Background(), sm.timeout)
+    defer cancel()
     sm.mu.Lock()
     cleanups := sm.cleanups
     sm.mu.Unlock()
-
     for i := len(cleanups) - 1; i >= 0; i-- {
-        if err := cleanups[i](shutdownCtx); err != nil {
-            log.WithError(err).Error("Cleanup function failed")
-        }
+        _ = cleanups[i](ctx) // log the error; shutdown must not block on it
     }
-
-    log.Info("Graceful shutdown complete")
-}
-
-func (sm *ShutdownManager) RequestShutdown() {
-    close(sm.shutdownCh)
 }
 ```
-
-### Usage Example
 
 ```go
 func main() {
     sm := NewShutdownManager(30 * time.Second)
+    sm.RegisterCleanup(func(ctx context.Context) error { return db.Close() })
 
-    // Register cleanup functions
-    sm.RegisterCleanup(func(ctx context.Context) error {
-        log.Info("Closing database connections")
-        return db.Close()
-    })
-
-    sm.RegisterCleanup(func(ctx context.Context) error {
-        log.Info("Flushing metrics")
-        return metrics.Flush(ctx)
-    })
-
-    // Start server
     server := &http.Server{Addr: ":8080"}
-    sm.RegisterCleanup(func(ctx context.Context) error {
-        return server.Shutdown(ctx)
-    })
-
+    sm.RegisterCleanup(server.Shutdown)
     go func() {
         if err := server.ListenAndServe(); err != http.ErrServerClosed {
-            log.WithError(err).Fatal("Server error")
+            log.Fatal(err)
         }
     }()
+    sm.wg.Go(func() { worker(sm.ctx) }) // workers: wg.Go at start, runs until ctx done
 
-    // Start workers
-    for i := 0; i < 5; i++ {
-        sm.AddWorker()
-        go func(id int) {
-            defer sm.WorkerDone()
-            worker(sm.Context(), id)
-        }(i)
-    }
-
-    // Wait for shutdown signal
-    sm.WaitForSignal()
+    sigCh := make(chan os.Signal, 1)
+    signal.Notify(sigCh, syscall.SIGTERM, syscall.SIGINT)
+    <-sigCh
+    sm.Shutdown()
 }
 ```
-
 ## Circuit Breaker
 
+Prefer a maintained library (for example `github.com/sony/gobreaker`) in
+production; the state machine is easy to get subtly wrong. The shape, if you
+roll it:
+
 ```go
-type CircuitState int
-
-const (
-    CircuitClosed CircuitState = iota
-    CircuitOpen
-    CircuitHalfOpen
-)
-
 type CircuitBreaker struct {
-    mu              sync.RWMutex
-    state           CircuitState
-    failures        int
-    successes       int
-    threshold       int
-    resetTimeout    time.Duration
-    halfOpenMax     int
-    lastFailureTime time.Time
+    mu         sync.Mutex
+    open       bool
+    failures   int
+    threshold  int
+    resetAfter time.Duration
+    lastFail   time.Time
 }
 
-func NewCircuitBreaker(threshold int, resetTimeout time.Duration) *CircuitBreaker {
-    return &CircuitBreaker{
-        state:        CircuitClosed,
-        threshold:    threshold,
-        resetTimeout: resetTimeout,
-        halfOpenMax:  3,
-    }
-}
+var ErrCircuitOpen = errors.New("circuit breaker is open")
 
 func (cb *CircuitBreaker) Execute(fn func() error) error {
-    if !cb.canExecute() {
-        return errors.New("circuit breaker is open")
+    cb.mu.Lock()
+    if cb.open && time.Since(cb.lastFail) > cb.resetAfter {
+        cb.open = false // half-open probe
     }
+    if cb.open {
+        cb.mu.Unlock()
+        return ErrCircuitOpen
+    }
+    cb.mu.Unlock()
 
     err := fn()
-    cb.recordResult(err)
-    return err
-}
 
-func (cb *CircuitBreaker) canExecute() bool {
-    cb.mu.RLock()
-    defer cb.mu.RUnlock()
-
-    switch cb.state {
-    case CircuitClosed:
-        return true
-    case CircuitOpen:
-        if time.Since(cb.lastFailureTime) > cb.resetTimeout {
-            cb.mu.RUnlock()
-            cb.mu.Lock()
-            cb.state = CircuitHalfOpen
-            cb.successes = 0
-            cb.mu.Unlock()
-            cb.mu.RLock()
-            return true
-        }
-        return false
-    case CircuitHalfOpen:
-        return true
-    }
-    return false
-}
-
-func (cb *CircuitBreaker) recordResult(err error) {
     cb.mu.Lock()
     defer cb.mu.Unlock()
-
     if err != nil {
         cb.failures++
-        cb.lastFailureTime = time.Now()
-
-        if cb.state == CircuitHalfOpen || cb.failures >= cb.threshold {
-            cb.state = CircuitOpen
-            cb.failures = 0
+        cb.lastFail = time.Now()
+        if cb.failures >= cb.threshold {
+            cb.open = true
         }
     } else {
-        if cb.state == CircuitHalfOpen {
-            cb.successes++
-            if cb.successes >= cb.halfOpenMax {
-                cb.state = CircuitClosed
-                cb.failures = 0
-            }
-        } else {
-            cb.failures = 0
-        }
+        cb.failures = 0
     }
+    return err
 }
 ```
-
 ## Timeout Patterns
 
-### Operation Timeout
+Wrap at the call site and let the context propagate; only spawn a goroutine
+plus `select` when the callee cannot take a context:
 
 ```go
-func WithTimeout(timeout time.Duration, fn func(context.Context) error) error {
-    ctx, cancel := context.WithTimeout(context.Background(), timeout)
-    defer cancel()
-
-    errCh := make(chan error, 1)
-    go func() {
-        errCh <- fn(ctx)
-    }()
-
-    select {
-    case err := <-errCh:
-        return err
-    case <-ctx.Done():
-        return fmt.Errorf("operation timed out after %v", timeout)
-    }
-}
+ctx, cancel := context.WithTimeout(ctx, d)
+defer cancel()
+err := fn(ctx)
 ```
-
-### Per-Job Timeout
-
-```go
-type TimeoutJob struct {
-    Job     BareJob
-    Timeout time.Duration
-}
-
-func (t *TimeoutJob) Run(ctx context.Context) error {
-    timeoutCtx, cancel := context.WithTimeout(ctx, t.Timeout)
-    defer cancel()
-
-    errCh := make(chan error, 1)
-    go func() {
-        errCh <- t.Job.Run(timeoutCtx)
-    }()
-
-    select {
-    case err := <-errCh:
-        return err
-    case <-timeoutCtx.Done():
-        if timeoutCtx.Err() == context.DeadlineExceeded {
-            return fmt.Errorf("job %s timed out after %v", t.Job.GetName(), t.Timeout)
-        }
-        return timeoutCtx.Err()
-    }
-}
-```
-
 ## Rate Limiting
 
+Use `golang.org/x/time/rate` directly; a wrapper struct adds nothing:
+
 ```go
-type RateLimiter struct {
-    limiter *rate.Limiter
+limiter := rate.NewLimiter(rate.Limit(rps), burst)
+if err := limiter.Wait(ctx); err != nil {
+    return err
 }
-
-func NewRateLimiter(rps float64, burst int) *RateLimiter {
-    return &RateLimiter{
-        limiter: rate.NewLimiter(rate.Limit(rps), burst),
-    }
-}
-
-func (rl *RateLimiter) Wait(ctx context.Context) error {
-    return rl.limiter.Wait(ctx)
-}
-
-func (rl *RateLimiter) Allow() bool {
-    return rl.limiter.Allow()
-}
-
-// Usage with job execution
-func (s *Scheduler) executeWithRateLimit(ctx context.Context, job Job) error {
-    if err := s.rateLimiter.Wait(ctx); err != nil {
-        return err
-    }
-    return job.Run(ctx)
-}
+// or limiter.Allow() to skip instead of blocking
 ```
-
 ## Health Checks
+
+Register named checks, run them under the request context, report per-check
+status. Serve at `/healthz` (liveness) and `/readyz` (readiness) with plain
+`net/http`; see `architecture.md` for the handler pattern.
 
 ```go
 type HealthChecker struct {
-    checks map[string]func(context.Context) error
     mu     sync.RWMutex
+    checks map[string]func(context.Context) error
 }
 
-func NewHealthChecker() *HealthChecker {
-    return &HealthChecker{
-        checks: make(map[string]func(context.Context) error),
-    }
-}
-
-func (hc *HealthChecker) Register(name string, check func(context.Context) error) {
-    hc.mu.Lock()
-    defer hc.mu.Unlock()
-    hc.checks[name] = check
-}
-
-type HealthStatus struct {
-    Status  string            `json:"status"`
-    Checks  map[string]string `json:"checks"`
-    Healthy bool              `json:"healthy"`
-}
-
-func (hc *HealthChecker) Check(ctx context.Context) HealthStatus {
+func (hc *HealthChecker) Check(ctx context.Context) (healthy bool, report map[string]string) {
     hc.mu.RLock()
     defer hc.mu.RUnlock()
-
-    status := HealthStatus{
-        Status:  "healthy",
-        Checks:  make(map[string]string),
-        Healthy: true,
-    }
-
+    report = make(map[string]string, len(hc.checks))
     for name, check := range hc.checks {
         if err := check(ctx); err != nil {
-            status.Checks[name] = fmt.Sprintf("unhealthy: %v", err)
-            status.Status = "unhealthy"
-            status.Healthy = false
+            report[name] = "unhealthy: " + err.Error()
+            healthy = false
         } else {
-            status.Checks[name] = "healthy"
+            report[name] = "healthy"
         }
     }
-
-    return status
+    return healthy, report
 }
 ```

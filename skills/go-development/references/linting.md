@@ -41,112 +41,13 @@ without a reason is indistinguishable from giving up.
 
 ## golangci-lint v2 Configuration
 
-golangci-lint v2 uses a new YAML structure. Here's a production-ready configuration:
-
-```yaml
-# .golangci.yml
-version: "2"
-run:
-  tests: true
-
-linters:
-  default: none
-  enable:
-    # Bugs & Correctness (Critical)
-    - govet           # Go vet checks
-    - staticcheck     # Comprehensive static analysis
-    - errcheck        # Unchecked errors
-    - errorlint       # Error wrapping issues
-    - bodyclose       # HTTP response body close
-    - noctx           # HTTP requests without context
-    - durationcheck   # Detects time.Second * time.Second bugs
-    - nilerr          # Catches return nil when err != nil
-    - nilnesserr      # Checks err != nil but returns different nil
-    - fatcontext      # Detects nested contexts in loops
-    - contextcheck    # Non-inherited context usage
-    - copyloopvar     # Loop variable copy issues (Go 1.22+)
-    - forcetypeassert # Unchecked type assertions (panic risk)
-    - makezero        # Slice with non-zero initial length bugs
-
-    # Security
-    - gosec           # Security issues
-
-    # Performance
-    - prealloc        # Slice preallocation suggestions
-    - unconvert       # Unnecessary type conversions
-    - perfsprint      # Faster sprintf alternatives
-
-    # Style & Maintainability
-    - gocyclo         # Cyclomatic complexity
-    - gocognit        # Cognitive complexity
-    - funlen          # Function length limits
-    - nestif          # Nested if statement depth
-    - ineffassign     # Ineffective assignments
-    - unused          # Unused code detection
-    - misspell        # Spelling mistakes
-    - revive          # Fast, configurable linter
-    - gocritic        # Opinionated linter
-
-    # Modernization (Go 1.21+)
-    - intrange        # Use for range n
-    - usestdlibvars   # Use http.StatusOK instead of 200
-    - modernize       # Modern Go features
-
-    # Testing Quality
-    - thelper         # Test helpers should call t.Helper()
-    - tparallel       # Correct t.Parallel() usage
-
-  settings:
-    gocyclo:
-      min-complexity: 15
-    gocognit:
-      min-complexity: 30
-    funlen:
-      lines: 80
-      statements: 50
-    nestif:
-      min-complexity: 4
-    misspell:
-      locale: US
-    errcheck:
-      check-type-assertions: true
-      check-blank: false  # Allow explicit _ = err
-
-  exclusions:
-    generated: lax
-    presets:
-      - comments
-      - common-false-positives
-      - legacy
-      - std-error-handling
-    rules:
-      # Exclude complexity checks in test files
-      - linters:
-          - gocyclo
-          - gocognit
-          - funlen
-          - nestif
-        path: _test\.go
-
-      # Example: Exclude inherently complex functions
-      # - linters:
-      #     - gocyclo
-      #     - gocognit
-      #   path: parser\.go
-      #   text: "(parse|complexFunction)"
-
-formatters:
-  enable:
-    - gci       # Import grouping
-    - gofumpt   # Stricter gofmt
-  settings:
-    gci:
-      sections:
-        - standard
-        - default
-        - prefix(github.com/your-org/your-project)
-```
-
+The starting configuration is `assets/golangci.yml` in this skill. Copy it to
+`.golangci.yml` at the repo root, change the `gci` prefix to the module path,
+and validate with `golangci-lint config verify`. It layers a curated enable
+list (correctness, structure, idiom) on top of golangci-lint's `standard`
+default set, with gofumpt and gci as formatters. The v2 schema and incremental
+adoption are covered by the `golangci-lint` skill; the per-finding fix patterns
+are below.
 
 ## Adopting golangci-lint on an existing codebase
 

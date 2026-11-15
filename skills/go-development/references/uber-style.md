@@ -2,109 +2,16 @@
 
 This document contains key patterns and conventions from the Uber Go Style Guide.
 
-## Error Handling (Uber Style)
+## Error Handling
 
-### Handle Errors Once
-
-Handle an error in only one place. Either log it OR return it, not both.
-
-```go
-// Bad: Error handled twice
-if err := doSomething(); err != nil {
-    log.Printf("Failed to do something: %v", err)  // Log
-    return err  // AND return
-}
-
-// Good: Return error to let caller decide
-if err := doSomething(); err != nil {
-    return fmt.Errorf("do something: %w", err)
-}
-
-// Good: Log and swallow at appropriate level
-if err := cleanup(); err != nil {
-    logger.Warn("cleanup failed", zap.Error(err))
-    // Don't return - cleanup failure is non-critical
-}
-```
-
-### Error Prefix Conventions
-
-Skip "failed to" prefixes. Context should add value.
-
-```go
-// Bad: Redundant "failed"
-return fmt.Errorf("failed to open file: %w", err)
-
-// Good: Clear context
-return fmt.Errorf("open config: %w", err)
-
-// Bad: Generic "error"
-return fmt.Errorf("error getting user: %w", err)
-
-// Good: Specific action
-return fmt.Errorf("get user %d: %w", userID, err)
-```
-
-### Sentinel Errors
-
-Export errors with `Err` prefix, custom types with `Error` suffix.
-
-```go
-// Sentinel errors
-var (
-    ErrNotFound    = errors.New("not found")
-    ErrInvalidID   = errors.New("invalid ID")
-)
-
-// Custom error types
-type NotFoundError struct {
-    Resource string
-    ID       string
-}
-
-func (e *NotFoundError) Error() string {
-    return fmt.Sprintf("%s %s not found", e.Resource, e.ID)
-}
-```
-
-### Error Inspection
-
-Always use `errors.Is` or `errors.As`.
-
-```go
-// Good: errors.Is
-if errors.Is(err, ErrNotFound) {
-    // handle
-}
-
-// Good: errors.As
-var notFound *NotFoundError
-if errors.As(err, &notFound) {
-    // use notFound.Resource
-}
-
-// Bad: String comparison
-if err.Error() == "not found" { ... }
-```
-
+The rules (handle once, lowercase without punctuation or a "failed to" prefix,
+wrap with `%w`, inspect with `errors.Is`/`errors.As`) are the core principles in
+SKILL.md. The Uber-specific nuance: at the top level of a service, log-and-
+swallow is legitimate for non-critical cleanup, as long as it is logged once.
 ## Interface Design
 
-### Verify Interface Compliance
-
-Use compile-time checks at package level.
-
-```go
-// At package level, verify type implements interface
-var _ http.Handler = (*Handler)(nil)
-
-// For concrete types implementing multiple interfaces
-var (
-    _ io.Reader   = (*MyReader)(nil)
-    _ io.Writer   = (*MyReader)(nil)
-    _ io.Closer   = (*MyReader)(nil)
-)
-```
-
+Compile-time conformance checks (`var _ http.Handler = (*Handler)(nil)`) are a
+core principle in SKILL.md.
 ### Interface Pointer Semantics
 
 Avoid pointers to interfaces.
@@ -177,42 +84,7 @@ import (
 
 ## Testing (Uber Style)
 
-### Table-Driven Test Pattern
-
-```go
-func TestParseUser(t *testing.T) {
-    tests := []struct {
-        name    string
-        give    string      // Input - use give prefix
-        want    *User       // Expected output - use want prefix
-        wantErr error
-    }{
-        {
-            name: "valid user",
-            give: "alice:admin",
-            want: &User{Name: "alice", Role: "admin"},
-        },
-        {
-            name:    "invalid format",
-            give:    "invalid",
-            wantErr: ErrInvalidFormat,
-        },
-    }
-
-    for _, tt := range tests {
-        t.Run(tt.name, func(t *testing.T) {
-            got, err := ParseUser(tt.give)
-            if tt.wantErr != nil {
-                assert.ErrorIs(t, err, tt.wantErr)
-                return
-            }
-            assert.NoError(t, err)
-            assert.Equal(t, tt.want, got)
-        })
-    }
-}
-```
-
+Table-driven tests are the default test shape; see `testing.md`.
 ### Avoid Complex Logic in Tests
 
 ```go
@@ -245,9 +117,8 @@ func TestParallel(t *testing.T) {
     }
 
     for _, tt := range tests {
-        tt := tt  // Capture for goroutine (pre-Go 1.22)
         t.Run(tt.name, func(t *testing.T) {
-            t.Parallel()  // Safe with captured tt
+            t.Parallel()  // Safe: since Go 1.22 each iteration has its own tt
             result := Process(tt.input)
             assert.Equal(t, tt.input*2, result)
         })
@@ -534,49 +405,7 @@ db.Model(&User{}).
     Find(&users)
 ```
 
-### Functional Options
-
-For extensible APIs with many optional parameters.
-
-```go
-type ClientOption func(*clientOptions)
-
-type clientOptions struct {
-    timeout time.Duration
-    retries int
-    logger  *zap.Logger
-}
-
-func WithTimeout(d time.Duration) ClientOption {
-    return func(o *clientOptions) {
-        o.timeout = d
-    }
-}
-
-func WithLogger(l *zap.Logger) ClientOption {
-    return func(o *clientOptions) {
-        o.logger = l
-    }
-}
-
-func NewClient(endpoint string, opts ...ClientOption) (*Client, error) {
-    options := clientOptions{
-        timeout: defaultTimeout,
-        retries: defaultRetries,
-    }
-    for _, opt := range opts {
-        opt(&options)
-    }
-    // ...
-}
-
-// Usage
-client, err := NewClient("http://api",
-    WithTimeout(5*time.Second),
-    WithLogger(logger),
-)
-```
-
+Functional options for API configuration are covered in `api-design.md`.
 ## References
 
 - [Uber Go Style Guide](https://github.com/uber-go/guide/blob/master/style.md)

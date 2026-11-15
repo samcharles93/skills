@@ -280,6 +280,9 @@ use. Defaults worth knowing:
   backing stores on the stack, so manual tricks rarely pay.
 - Generic methods (1.27) organise code around a type; they never satisfy an
   interface method.
+- On 1.27 `encoding/json` runs on `encoding/json/v2` underneath. Import v2
+  directly in new code, and re-check tests that assert on v1 error text, `null`
+  for nil slices, or case-insensitive field matching.
 - Retire an exported API with `// Deprecated:` plus `//go:fix inline` on a
   forwarding implementation, and let `go fix` migrate callers.
 - After raising the `go` directive, run `go fix ./...` until it stops changing
@@ -350,7 +353,7 @@ Details deliberately kept out of this file:
 | `references/simd.md` | `simd` and `simd/archsimd`: dispatch, feature checks, 1.26-1.27 renames, gate commands |
 | `references/uber-style.md` | Uber conventions: global var naming, channel sizing, enums, worker lifecycle, atomics |
 | `references/api-design.md` | API surface decisions including functional options |
-| `references/architecture.md` | Project structure |
+| `references/architecture.md` | Project, service and scheduler structure |
 | `references/resilience.md`, `references/docker.md`, `references/makefile.md` | Operational concerns |
 | `references/fuzz-testing.md`, `references/mutation-testing.md` | Deeper verification techniques |
 
