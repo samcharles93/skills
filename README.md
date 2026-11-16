@@ -159,13 +159,25 @@ version strings, one of them edited in place without a version bump.
 4. **Keep the plugin coherent.** Go tooling only.
 5. **Every manifest carries the same version.** Both plugin manifests and the
    skill `VERSION` move together, so a published plugin never advertises a
-   version its skills do not have.
+   version its skills do not have. `scripts/check-versions.sh` enforces this,
+   and `.githooks/` runs it on commit and on tag push (enable per clone with
+   `git config core.hooksPath .githooks`).
+
+## Releasing
+
+1. Bump the version in `.claude-plugin/plugin.json`, `.codex-plugin/plugin.json`
+   and `skills/go-development/VERSION`.
+2. `scripts/check-versions.sh` passes, then commit.
+3. `git tag -a v<version> -m <summary>` and push the branch and the tag. The
+   pre-push hook rejects a tag whose name disagrees with the manifests.
 
 ## Repository layout
 
 ```
 .claude-plugin/plugin.json   Claude Code manifest
 .codex-plugin/plugin.json    Codex manifest, kept in step with the Claude one
+.githooks/                   Version gate on commit and tag push
+scripts/check-versions.sh    Single source of truth for version alignment
 .mcp.json                    MCP server registration
 hooks.json                   Valid but intentionally empty
 skills/<name>/SKILL.md       One directory per skill
