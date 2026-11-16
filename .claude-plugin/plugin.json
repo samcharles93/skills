@@ -1,6 +1,6 @@
 {
   "name": "go-dev-toolkit",
-  "version": "2.1.0",
+  "version": "2.2.0",
   "description": "Claude Code plugin bundling Go development skills and a Go workspace MCP server.",
   "author": {
     "name": "Sam Catlow",
