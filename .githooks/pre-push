@@ -1,12 +1,22 @@
 #!/bin/sh
-# Reject a pushed tag whose name disagrees with the plugin version.
+# Reject a pushed release tag whose name disagrees with the plugin version.
+# A tag that does not point at HEAD is history (an archive of an older layout),
+# so it is exempt: releases are tagged at the commit being released.
 root=$(git rev-parse --show-toplevel)
+head=$(git rev-parse HEAD)
 status=0
-while read -r _local_ref _local_sha remote_ref _remote_sha; do
+while read -r _local_ref local_sha remote_ref _remote_sha; do
 	case "$remote_ref" in
-	refs/tags/*)
-		"$root/scripts/check-versions.sh" --tag "${remote_ref#refs/tags/}" || status=1
-		;;
+	refs/tags/*) ;;
+	*) continue ;;
 	esac
+	tag=${remote_ref#refs/tags/}
+	commit=$(git rev-parse --verify --quiet "$local_sha^{commit}") || continue
+	if [ "$commit" != "$head" ]; then
+		printf 'version check: %s archives %s, not HEAD, so not checked\n' \
+			"$tag" "$(git rev-parse --short "$commit")"
+		continue
+	fi
+	"$root/scripts/check-versions.sh" --tag "$tag" || status=1
 done
 exit $status
