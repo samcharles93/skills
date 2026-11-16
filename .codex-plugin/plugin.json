@@ -1,13 +1,13 @@
 {
   "name": "go-dev-toolkit",
-  "version": "1.0.0",
-  "description": "Reusable Go development toolkit bundling core skills for coding, modernization, testing, TUIs, HUMA APIs, and MCP servers.",
+  "version": "2.2.0",
+  "description": "Reusable Go development toolkit bundling core skills for coding, code quality, LDAP, HUMA APIs, and MCP servers, plus the go-workspace MCP server.",
   "author": {
     "name": "Sam Catlow",
     "email": "sam@catlow.tech"
   },
-  "homepage": "[TODO: plugin homepage URL]",
-  "repository": "[TODO: repository URL]",
+  "homepage": "https://github.com/samcharles93/skills",
+  "repository": "https://github.com/samcharles93/skills",
   "license": "MIT",
   "keywords": [
     "go",
@@ -16,25 +16,25 @@
     "testing",
     "documentation",
     "mcp",
-    "tui",
-    "api"
+    "api",
+    "ldap"
   ],
   "skills": "./skills/",
   "hooks": "./hooks.json",
   "mcpServers": "./.mcp.json",
   "interface": {
     "displayName": "Go Dev Toolkit",
-    "shortDescription": "Go coding, API, TUI, and MCP workflows",
-    "longDescription": "Bundle curated Go skills for general development, documentation, error handling, modernization, testing, Bubble Tea TUIs, HUMA APIs, and official Go SDK MCP server creation.",
+    "shortDescription": "Go coding, API, and MCP workflows",
+    "longDescription": "Bundles curated Go skills for general development and code quality, golangci-lint configuration, LDAP and Active Directory integration, HUMA v2 APIs, and MCP servers built with the official Go SDK, plus a go-workspace MCP server for local package discovery and pkg.go.dev lookups (versions, docs, symbols, importers, vulnerabilities).",
     "developerName": "Sam Catlow",
     "category": "Coding",
     "capabilities": [
       "Interactive",
       "Write"
     ],
-    "websiteURL": "[TODO: plugin website URL]",
-    "privacyPolicyURL": "[TODO: privacy policy URL]",
-    "termsOfServiceURL": "[TODO: terms of service URL]",
+    "websiteURL": "https://github.com/samcharles93/skills",
+    "privacyPolicyURL": "",
+    "termsOfServiceURL": "",
     "defaultPrompt": [
       "Review and improve this Go codebase using the bundled Go skills",
       "Build a HUMA API endpoint with strong validation and tests",

@@ -157,12 +157,15 @@ version strings, one of them edited in place without a version bump.
    `scripts/` for this reason.
 3. **Deploy by symlink, not copy.** One copy on disk cannot drift.
 4. **Keep the plugin coherent.** Go tooling only.
+5. **Every manifest carries the same version.** Both plugin manifests and the
+   skill `VERSION` move together, so a published plugin never advertises a
+   version its skills do not have.
 
 ## Repository layout
 
 ```
 .claude-plugin/plugin.json   Claude Code manifest
-.codex-plugin/plugin.json    Codex manifest, retained but unmaintained
+.codex-plugin/plugin.json    Codex manifest, kept in step with the Claude one
 .mcp.json                    MCP server registration
 hooks.json                   Valid but intentionally empty
 skills/<name>/SKILL.md       One directory per skill
